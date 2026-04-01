@@ -36,7 +36,15 @@ export class App {
    * from scroll gestures on mobile.
    */
   init() {
-    const startHandler = () => this._start();
+    let started = false;
+    const startHandler = (e) => {
+      if (started) return;
+      started = true;
+      // Prevent the ~300 ms synthesized click that follows touchend on iOS,
+      // which would otherwise call _start() a second time.
+      e.preventDefault();
+      this._start();
+    };
     this._overlay.addEventListener('click',    startHandler, { once: true });
     this._overlay.addEventListener('touchend', startHandler, { once: true });
   }
@@ -80,7 +88,13 @@ export class App {
       this._errorMsg.style.display = 'block';
 
       // Re-attach the tap listener so the user can try again.
-      const retryHandler = () => this._start();
+      let retrying = false;
+      const retryHandler = (e) => {
+        if (retrying) return;
+        retrying = true;
+        e.preventDefault();
+        this._start();
+      };
       this._overlay.addEventListener('click',    retryHandler, { once: true });
       this._overlay.addEventListener('touchend', retryHandler, { once: true });
     }
