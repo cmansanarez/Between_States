@@ -53,6 +53,10 @@ export class ARSystem {
   async init(facingMode = 'user') {
     this.arState.facingMode = facingMode;
 
+    if (!window.MINDAR?.FACE?.MindARThree) {
+      throw new Error('MindAR script not loaded — check CDN URL in index.html');
+    }
+
     const container = document.getElementById('ar-container');
 
     this._mindar = new window.MINDAR.FACE.MindARThree({
