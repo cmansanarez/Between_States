@@ -1,32 +1,34 @@
 /**
  * arSystem.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Wraps MindAR face tracking and exposes a live arState object read by the
- * state machine each frame.
+ * Camera feed + ml5.js FaceMesh face tracking.
  *
  * ARCHITECTURE
  * ────────────
- * MindAR renders into #ar-container (z-index 0) — its Three.js canvas shows
- * the camera feed as a background texture with no additional 3D objects.
- * The Hydra canvas (z-index 1) sits on top; app.js drives its CSS opacity
- * from audioState.level so the camera shows through at silence.
+ * A plain <video> element in #ar-container (z-index 0) shows the camera feed.
+ * The Hydra canvas (z-index 1) sits on top; app.js drives its CSS opacity from
+ * audioState.level so the camera shows through at silence.
  *
- * FACE DETECTION
- * ──────────────
- * We add a single nose-tip anchor (landmark 1). MindAR sets anchor.group.visible
- * true/false each frame based on whether a face is in frame. We read this
- * flag and write it to arState.faceDetected every animation tick.
+ * ml5.faceMesh() reads frames from the same <video> element each tick and
+ * fires a callback with detected faces. No separate canvas or renderer needed.
+ *
+ * FACE DATA
+ * ─────────
+ * ml5 returns a `faces` array — empty when no face is present. From the
+ * bounding box we derive normalised (0–1) position and size values that
+ * Hydra and the state machine can read each frame.
  *
  * CAMERA SWITCHING
  * ────────────────
- * MindAR defaults to the front camera ('user' facingMode). For back camera,
- * we swap the video element's srcObject post-start — MindAR's face detection
- * worker reads frames from the same video element regardless of stream source.
- * Switching stops the current instance, clears the container, and reinits.
+ * Stops the current stream, swaps facingMode, restarts the video + ml5.
+ * ml5.faceMesh.detectStop() / detectStart() cleanly handles the handoff.
  *
  * EXPOSED STATE
  * ─────────────
- *   arState.faceDetected  boolean  — true when a face is actively tracked
+ *   arState.faceDetected  boolean  — true when ≥1 face is in frame
+ *   arState.faceX         0–1      — normalised horizontal face centre (0=left)
+ *   arState.faceY         0–1      — normalised vertical face centre (0=top)
+ *   arState.faceSize      0–1      — face bounding box width / video width
  *   arState.facingMode    string   — 'user' | 'environment'
  */
 
@@ -34,51 +36,70 @@ export class ARSystem {
   constructor() {
     this.arState = {
       faceDetected: false,
+      faceX:        0.5,
+      faceY:        0.5,
+      faceSize:     0,
       facingMode:   'user',
     };
 
-    this._mindar     = null;
-    this._video      = null;
-    this._loopActive = false;
+    this._video    = null;
+    this._faceMesh = null;
   }
 
   /**
    * init(facingMode)
    * ─────────────────
-   * Two-phase startup:
-   *   1. Start a plain camera video stream immediately — camera is visible
-   *      regardless of whether MindAR loads successfully.
-   *   2. Attempt to load MindAR and layer face tracking on top. If MindAR
-   *      fails (import error, three.js resolution, etc.) the camera feed
-   *      stays visible and the experience continues without tracking.
-   *
+   * Starts the camera feed then layers ml5 FaceMesh on top.
    * Must be called from inside a user-gesture handler (camera permission).
    *
-   * @param {'user'|'environment'} facingMode — which camera to use
+   * @param {'user'|'environment'} facingMode
    */
   async init(facingMode = 'user') {
     this.arState.facingMode = facingMode;
-
-    // ── Phase 1: plain camera feed ───────────────────────────────────────────
-    // Always runs. Shows camera immediately, independent of MindAR.
-    await this._startCameraFallback(facingMode);
-
-    // ── Phase 2: MindAR face tracking ────────────────────────────────────────
-    // Attempted on top of the camera feed. Non-fatal if it fails.
-    try {
-      await this._startMindAR(facingMode);
-    } catch (err) {
-      console.warn('[AR] Face tracking unavailable, camera-only mode:', err.message ?? err);
-    }
+    await this._startCamera(facingMode);
+    await this._startFaceMesh();
   }
 
   /**
-   * _startCameraFallback(facingMode)
-   * ─────────────────────────────────
-   * Creates a <video> element in #ar-container and starts the camera stream.
-   * This is the guaranteed camera layer — visible even if MindAR fails.
+   * switchCamera()
+   * ───────────────
+   * Toggles front ↔ back camera. Stops tracking, swaps stream, restarts.
    */
-  async _startCameraFallback(facingMode) {
+  async switchCamera() {
+    const next = this.arState.facingMode === 'user' ? 'environment' : 'user';
+    await this.stop();
+    document.getElementById('ar-container').innerHTML = '';
+    await this.init(next);
+  }
+
+  /**
+   * stop()
+   * ───────
+   * Stops face detection and shuts down the camera stream.
+   */
+  async stop() {
+    if (this._faceMesh) {
+      try { this._faceMesh.detectStop(); } catch (_) {}
+      this._faceMesh = null;
+    }
+
+    if (this._video?.srcObject) {
+      this._video.srcObject.getTracks().forEach(t => t.stop());
+      this._video.srcObject = null;
+      this._video = null;
+    }
+
+    this.arState.faceDetected = false;
+    this.arState.faceSize     = 0;
+  }
+
+  /**
+   * _startCamera(facingMode)
+   * ─────────────────────────
+   * Creates a <video> element in #ar-container and starts the camera stream.
+   * Front camera is mirrored via CSS scaleX(-1) to match natural selfie view.
+   */
+  async _startCamera(facingMode) {
     const container = document.getElementById('ar-container');
 
     this._video = document.createElement('video');
@@ -103,121 +124,65 @@ export class ARSystem {
       this._video.addEventListener('loadedmetadata', resolve, { once: true })
     );
 
-    console.log(`[AR] Camera feed started — facingMode: ${facingMode}`);
+    console.log(`[AR] Camera started — facingMode: ${facingMode}`);
   }
 
   /**
-   * _startMindAR(facingMode)
-   * ─────────────────────────
-   * Loads MindAR via dynamic import and starts face tracking.
-   * MindAR will create its own video element and Three.js canvas inside
-   * #ar-container on top of the fallback video.
-   */
-  async _startMindAR(facingMode) {
-    const { MindARThree } = await import(
-      'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js'
-    );
-
-    const container = document.getElementById('ar-container');
-
-    this._mindar = new MindARThree({
-      container,
-      uiLoading:  'no',
-      uiScanning: 'no',
-      uiError:    'no',
-    });
-
-    const { renderer, scene, camera } = this._mindar;
-
-    // Nose-tip anchor — group.visible reflects live face detection state.
-    const anchor = this._mindar.addAnchor(1);
-
-    await this._mindar.start();
-
-    if (facingMode === 'environment') {
-      await this._swapVideoFacing('environment');
-    }
-
-    this._loopActive = true;
-    renderer.setAnimationLoop(() => {
-      if (!this._loopActive) return;
-      renderer.render(scene, camera);
-
-      const detected = anchor.group.visible;
-      if (detected !== this.arState.faceDetected) {
-        console.log(`[AR] Face ${detected ? 'detected' : 'lost'}`);
-      }
-      this.arState.faceDetected = detected;
-    });
-
-    console.log('[AR] MindAR face tracking started');
-  }
-
-  /**
-   * switchCamera()
-   * ───────────────
-   * Toggles between front ('user') and back ('environment') camera.
-   * Stops the current MindAR instance, clears the container, and reinits.
-   * Causes a brief reload as MindAR re-acquires the camera stream.
-   */
-  async switchCamera() {
-    const next = this.arState.facingMode === 'user' ? 'environment' : 'user';
-    await this.stop();
-    document.getElementById('ar-container').innerHTML = '';
-    await this.init(next);
-  }
-
-  /**
-   * stop()
-   * ───────
-   * Halts the animation loop and shuts down MindAR cleanly.
-   */
-  async stop() {
-    this._loopActive = false;
-
-    if (this._mindar) {
-      try {
-        this._mindar.renderer.setAnimationLoop(null);
-        await this._mindar.stop();
-      } catch (_) { /* ignore cleanup errors */ }
-      this._mindar = null;
-    }
-
-    if (this._video?.srcObject) {
-      this._video.srcObject.getTracks().forEach(t => t.stop());
-      this._video.srcObject = null;
-      this._video = null;
-    }
-
-    this.arState.faceDetected = false;
-  }
-
-  /**
-   * _swapVideoFacing(facingMode)
-   * ─────────────────────────────
-   * Replaces the camera stream on MindAR's video element.
-   * MindAR's face detection reads frames from the video element each tick,
-   * so swapping srcObject redirects detection to the new camera.
+   * _startFaceMesh()
+   * ─────────────────
+   * Initialises ml5.faceMesh and starts continuous detection on the video.
+   * ml5 is loaded as a window global via <script> tag in index.html.
    *
-   * @param {'user'|'environment'} facingMode
+   * maxFaces: 1 — we only need one face; higher values hurt mobile performance.
+   * flipHorizontal: false — we mirror via CSS, not in the model.
    */
-  async _swapVideoFacing(facingMode) {
-    try {
-      const video = this._mindar.video;
-      const old   = video.srcObject;
-      if (old) old.getTracks().forEach(t => t.stop());
+  async _startFaceMesh() {
+    if (!window.ml5) {
+      throw new Error('ml5 not loaded — check CDN script tag in index.html');
+    }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
-
-      video.srcObject = stream;
-      await new Promise(resolve =>
-        video.addEventListener('loadedmetadata', resolve, { once: true })
+    this._faceMesh = await new Promise((resolve) => {
+      const fm = ml5.faceMesh(
+        { maxFaces: 1, flipHorizontal: false },
+        () => resolve(fm)   // callback fires when model is ready
       );
-    } catch (err) {
-      console.warn('[AR] Could not swap camera facing:', err.message);
+    });
+
+    this._faceMesh.detectStart(this._video, (faces) => this._onFaces(faces));
+    console.log('[AR] ml5 FaceMesh started');
+  }
+
+  /**
+   * _onFaces(faces)
+   * ────────────────
+   * ml5 detection callback — fires every frame with the latest results.
+   * Updates arState from the first detected face's bounding box.
+   *
+   * Coordinates from ml5 are in video pixel space. We normalise by video
+   * dimensions so values are always 0–1 regardless of camera resolution.
+   *
+   * faceX / faceY: centre of bounding box, normalised 0–1.
+   * faceSize:      box width / video width — 1.0 means face fills the frame.
+   */
+  _onFaces(faces) {
+    const detected = faces.length > 0;
+
+    if (detected !== this.arState.faceDetected) {
+      console.log(`[AR] Face ${detected ? 'detected' : 'lost'}`);
+    }
+
+    this.arState.faceDetected = detected;
+
+    if (detected) {
+      const box  = faces[0].box;
+      const vw   = this._video.videoWidth  || 1;
+      const vh   = this._video.videoHeight || 1;
+
+      this.arState.faceX    = Math.min((box.xMin + box.width  * 0.5) / vw, 1);
+      this.arState.faceY    = Math.min((box.yMin + box.height * 0.5) / vh, 1);
+      this.arState.faceSize = Math.min(box.width / vw, 1);
+    } else {
+      this.arState.faceSize = 0;
     }
   }
 }
