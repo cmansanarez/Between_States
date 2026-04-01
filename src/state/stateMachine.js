@@ -65,18 +65,29 @@ export class StateMachine {
   }
 
   /**
-   * update(audioState)
-   * ──────────────────
+   * update(audioState, arState)
+   * ───────────────────────────
    * Called every animation frame from AudioAnalyzer's draw loop.
-   * Resolves the desired target state from the current audio level,
-   * then applies hold-frame hysteresis before committing the transition.
+   * Resolves the desired target state from audio level, applies the AR face
+   * detection floor, then applies hold-frame hysteresis before committing.
+   *
+   * Face detection floor: when a face is detected, the state cannot drop
+   * below 'emergence' regardless of audio level — face presence keeps the
+   * system alive even in silence. Face lost → state decays normally.
    *
    * @param {{ level: number, bass: number, mid: number, treble: number }} audioState
+   * @param {{ faceDetected: boolean }|null} arState
    */
-  update(audioState) {
+  update(audioState, arState = null) {
     const level   = audioState.level;
     const current = this._store.current;
-    const target  = this._resolveTarget(level, current);
+
+    // Resolve audio-based target, then apply face detection floor.
+    const audioTarget = this._resolveTarget(level, current);
+    const faceFloor   = arState?.faceDetected ? STATES.EMERGENCE : STATES.IDLE;
+    const target      = STATE_ORDER.indexOf(audioTarget) >= STATE_ORDER.indexOf(faceFloor)
+      ? audioTarget
+      : faceFloor;
 
     if (target === current) {
       // Already in the right state — reset any pending transition

@@ -18,6 +18,7 @@
     <script>eruda.init();</script>
 
     <!-- Heavy libs loaded via CDN — they rely on browser globals and don't bundle cleanly -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.4.0/dist/mindar-face-three.prod.js"></script>
     <script src="https://unpkg.com/hydra-synth@1.4.0/dist/hydra-synth.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/addons/p5.sound.min.js"></script>
@@ -40,7 +41,28 @@
         background: #000;
       }
 
-      /* ── Hydra canvas fills the screen ── */
+      /* ── AR container: MindAR renders camera feed + Three.js here ── */
+      #ar-container {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+      }
+
+      /* MindAR creates a video and canvas inside #ar-container.
+         Both should fill the container and cover the screen. */
+      #ar-container video,
+      #ar-container canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover;
+      }
+
+      /* ── Hydra canvas sits above the camera feed ── */
+      /* opacity is driven by audioState.level via JS after experience starts. */
+      /* z-index 1 keeps it above #ar-container (0) and below overlay (100). */
       #hydra-canvas {
         position: fixed;
         top: 0;
@@ -48,6 +70,25 @@
         width: 100%;
         height: 100%;
         display: block;
+        z-index: 1;
+      }
+
+      /* ── Camera flip button ── */
+      #camera-flip {
+        position: fixed;
+        top: 1.2rem;
+        right: 1.2rem;
+        z-index: 200;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        color: rgba(255, 255, 255, 0.7);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        padding: 0.4rem 0.7rem;
+        cursor: pointer;
+        touch-action: manipulation;
+        display: none; /* shown by app.js after experience starts */
       }
 
       /* ── Tap-to-start overlay ── */
@@ -100,8 +141,14 @@
   </head>
 
   <body>
-    <!-- Hydra renders into this canvas -->
+    <!-- MindAR renders camera feed + face tracking into this container -->
+    <div id="ar-container"></div>
+
+    <!-- Hydra renders into this canvas (z-index 1, opacity driven by audio) -->
     <canvas id="hydra-canvas"></canvas>
+
+    <!-- Camera flip button — shown after experience starts -->
+    <button id="camera-flip" aria-label="flip camera">flip cam</button>
 
     <!-- Full-screen overlay — removed once the user grants mic access -->
     <div id="overlay">

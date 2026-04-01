@@ -18,14 +18,17 @@ export class App {
    * @param {StateStore}    stateStore     — live system state container
    * @param {MotionSensor}  motionSensor   — device motion + orientation module
    */
-  constructor(audioAnalyzer, hydraSetup, stateStore, motionSensor) {
+  constructor(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem) {
     this._audioAnalyzer = audioAnalyzer;
     this._hydraSetup    = hydraSetup;
     this._stateStore    = stateStore;
     this._motionSensor  = motionSensor;
+    this._arSystem      = arSystem;
 
-    this._overlay  = document.getElementById('overlay');
-    this._errorMsg = document.getElementById('error-msg');
+    this._overlay     = document.getElementById('overlay');
+    this._errorMsg    = document.getElementById('error-msg');
+    this._flipBtn     = document.getElementById('camera-flip');
+    this._hydraCanvas = document.getElementById('hydra-canvas');
   }
 
   /**
@@ -88,6 +91,14 @@ export class App {
         console.warn('[Between States] Motion sensor unavailable:', motionErr.message ?? motionErr);
       }
 
+      // Start AR face tracking. Camera permission dialog fires here.
+      // Non-fatal: if camera is denied the experience continues without AR.
+      try {
+        await this._arSystem.init('user');
+      } catch (arErr) {
+        console.warn('[Between States] AR unavailable:', arErr.message ?? arErr);
+      }
+
       // flashState is read by the Hydra patch every tick via arrow functions.
       // pixelate: 1 = no visible effect (1px blocks = passthrough).
       // A tap sets it to 100 and _startFlashDecay() exponentially returns it to 1.
@@ -109,6 +120,12 @@ export class App {
 
       // Attach the in-experience tap listener now that the overlay is gone.
       this._setupTapFlash();
+
+      // Start audio-driven blend loop: Hydra canvas opacity tracks audio level.
+      this._startBlendLoop();
+
+      // Show and wire the camera flip button.
+      this._setupFlipButton();
 
     } catch (err) {
       // Mic access was denied or the AudioContext failed.
@@ -160,6 +177,53 @@ export class App {
    * requestAnimationFrame. Each frame pulls the value 10% closer to 1,
    * giving a fast initial drop that slows as it settles — ~0.75 s total.
    */
+  /**
+   * _startBlendLoop()
+   * ──────────────────
+   * Runs a requestAnimationFrame loop that sets the Hydra canvas opacity
+   * from audioState.level each frame.
+   *
+   *   silence  → opacity 0  → camera fully visible
+   *   loud     → opacity 1  → Hydra fully dominates
+   *
+   * A power curve (^0.5) keeps the transition gradual — the camera stays
+   * clearly visible at low-moderate audio before Hydra takes over.
+   * The level is multiplied by 2.5 so moderate speaking (~0.4) reaches
+   * full opacity rather than requiring maximum volume.
+   */
+  _startBlendLoop() {
+    const update = () => {
+      const level   = this._audioAnalyzer.state.level;
+      const opacity = Math.min(Math.pow(level * 2.5, 0.5), 1);
+      this._hydraCanvas.style.opacity = opacity;
+      this._blendRaf = requestAnimationFrame(update);
+    };
+    this._blendRaf = requestAnimationFrame(update);
+  }
+
+  /**
+   * _setupFlipButton()
+   * ───────────────────
+   * Shows the camera flip button and wires its click handler.
+   * stopPropagation() prevents the tap from bubbling to the document
+   * tap-flash listener and triggering a pixelate burst.
+   */
+  _setupFlipButton() {
+    this._flipBtn.style.display = 'block';
+    this._flipBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      this._flipBtn.textContent = '...';
+      this._flipBtn.disabled = true;
+      try {
+        await this._arSystem.switchCamera();
+      } catch (err) {
+        console.warn('[Between States] Camera switch failed:', err.message);
+      }
+      this._flipBtn.textContent = 'flip cam';
+      this._flipBtn.disabled = false;
+    });
+  }
+
   _startFlashDecay() {
     if (this._flashRaf) cancelAnimationFrame(this._flashRaf);
 

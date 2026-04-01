@@ -28,6 +28,7 @@ import { App }           from './app/app.js';
 import { StateStore }    from './state/stateStore.js';
 import { StateMachine }  from './state/stateMachine.js';
 import { MotionSensor }  from './motion/motionSensor.js';
+import { ARSystem }      from './ar/arSystem.js';
 
 try {
   // ── 1. Initialize Hydra ────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ try {
   // ── 4. Audio analyzer ─────────────────────────────────────────────────────
   // onUpdate fires each draw() frame — keeps state evaluation in sync with audio.
   const audioAnalyzer = new AudioAnalyzer(
-    (audioState) => stateMachine.update(audioState)
+    (audioState) => stateMachine.update(audioState, arSystem.arState)
   );
 
   // ── 5. Motion sensor ──────────────────────────────────────────────────────
@@ -54,8 +55,13 @@ try {
   // app.js calls motionSensor.init() inside the same tap handler as the mic.
   const motionSensor = new MotionSensor();
 
-  // ── 6. Wire up the app (overlay tap → mic + motion → reactive patch) ──────
-  const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor);
+  // ── 6. AR system ──────────────────────────────────────────────────────────
+  // Created here but not started yet — camera permission requires a user
+  // gesture. app.js calls arSystem.init() inside the same tap handler.
+  const arSystem = new ARSystem();
+
+  // ── 7. Wire up the app ────────────────────────────────────────────────────
+  const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem);
   app.init();
 
 } catch (err) {
