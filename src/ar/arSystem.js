@@ -143,15 +143,48 @@ export class ARSystem {
       throw new Error('ml5 not loaded — check CDN script tag in index.html');
     }
 
-    this._faceMesh = await new Promise((resolve) => {
-      const fm = ml5.faceMesh(
-        { maxFaces: 1, flipHorizontal: false },
-        () => resolve(fm)   // callback fires when model is ready
+    console.log('[AR] ml5 version:', ml5.version);
+    console.log('[AR] video readyState:', this._video.readyState,
+      'size:', this._video.videoWidth, '×', this._video.videoHeight);
+
+    // Ensure video is actually playing before handing it to ml5.
+    // readyState 4 = HAVE_ENOUGH_DATA — frames are available.
+    if (this._video.readyState < 2) {
+      console.log('[AR] Waiting for video to be ready...');
+      await new Promise(resolve =>
+        this._video.addEventListener('canplay', resolve, { once: true })
       );
+      console.log('[AR] Video ready — readyState:', this._video.readyState);
+    }
+
+    await this._video.play().catch(e =>
+      console.warn('[AR] video.play() failed:', e.message)
+    );
+
+    console.log('[AR] Initialising ml5.faceMesh...');
+    this._faceMesh = await new Promise((resolve, reject) => {
+      try {
+        const fm = ml5.faceMesh(
+          { maxFaces: 1, flipHorizontal: false },
+          () => {
+            console.log('[AR] ml5.faceMesh model ready');
+            resolve(fm);
+          }
+        );
+      } catch (e) {
+        reject(e);
+      }
     });
 
-    this._faceMesh.detectStart(this._video, (faces) => this._onFaces(faces));
-    console.log('[AR] ml5 FaceMesh started');
+    console.log('[AR] Calling detectStart on video element:', this._video);
+    this._faceMesh.detectStart(this._video, (faces) => {
+      if (this._firstDetectCallback === undefined) {
+        this._firstDetectCallback = true;
+        console.log('[AR] First detection callback fired — faces:', faces.length);
+      }
+      this._onFaces(faces);
+    });
+    console.log('[AR] ml5 FaceMesh detectStart called');
   }
 
   /**
