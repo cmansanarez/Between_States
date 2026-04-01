@@ -28,8 +28,8 @@
  * analyzer.state.bass             // live 0–1 values, read each frame
  */
 
-import p5 from 'p5';
-import 'p5/lib/addons/p5.sound';
+// p5 and p5.sound are loaded via CDN script tags in index.html — no import needed.
+/* global p5 */
 
 export class AudioAnalyzer {
   constructor() {

@@ -10,7 +10,6 @@ export default {
   // Pre-bundle these CJS/hybrid packages so Vite can handle them correctly.
   // hydra-synth uses regl and other browser-global dependencies that need
   // to be included in Vite's dep-optimization step.
-  optimizeDeps: {
-    include: ['p5'],
-  },
+  // No npm deps to optimize — heavy libs (hydra-synth, p5) load via CDN.
+  optimizeDeps: {},
 };
