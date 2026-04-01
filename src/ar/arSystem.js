@@ -53,13 +53,15 @@ export class ARSystem {
   async init(facingMode = 'user') {
     this.arState.facingMode = facingMode;
 
-    if (!window.MINDAR?.FACE?.MindARThree) {
-      throw new Error('MindAR script not loaded — check CDN URL in index.html');
-    }
+    // Dynamic import — MindAR is an ES module and won't set window globals
+    // when loaded via a plain <script> tag. import() works correctly.
+    const { MindARThree } = await import(
+      'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js'
+    );
 
     const container = document.getElementById('ar-container');
 
-    this._mindar = new window.MINDAR.FACE.MindARThree({
+    this._mindar = new MindARThree({
       container,
       uiLoading: 'no',
       uiScanning: 'no',
