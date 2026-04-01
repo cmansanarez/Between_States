@@ -80,6 +80,11 @@ export class ARSystem {
    * Stops face detection and shuts down the camera stream.
    */
   async stop() {
+    if (this._debugInterval) {
+      clearInterval(this._debugInterval);
+      this._debugInterval = null;
+    }
+
     if (this._faceMesh) {
       try { this._faceMesh.detectStop(); } catch (_) {}
       this._faceMesh = null;
@@ -165,7 +170,7 @@ export class ARSystem {
     this._faceMesh = await new Promise((resolve, reject) => {
       try {
         const fm = ml5.faceMesh(
-          { maxFaces: 1, flipHorizontal: false },
+          { maxFaces: 1, flipHorizontal: true },
           () => {
             console.log('[AR] ml5.faceMesh model ready');
             resolve(fm);
@@ -176,12 +181,14 @@ export class ARSystem {
       }
     });
 
-    console.log('[AR] Calling detectStart on video element:', this._video);
+    // Log face count every 3 seconds so we can see if detection ever succeeds.
+    this._debugInterval = setInterval(() => {
+      console.log('[AR] face count this tick:', this._lastFaceCount ?? 'no callback yet');
+    }, 3000);
+
+    console.log('[AR] Calling detectStart (flipHorizontal: true)');
     this._faceMesh.detectStart(this._video, (faces) => {
-      if (this._firstDetectCallback === undefined) {
-        this._firstDetectCallback = true;
-        console.log('[AR] First detection callback fired — faces:', faces.length);
-      }
+      this._lastFaceCount = faces.length;
       this._onFaces(faces);
     });
     console.log('[AR] ml5 FaceMesh detectStart called');
