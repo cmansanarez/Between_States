@@ -11,36 +11,27 @@
  * () => audioState.bass always reads the *current* bass value — no explicit
  * update loop required on our side.
  *
+ * PATCH STRUCTURE (dual-buffer feedback loop)
+ * ────────────────────────────────────────────
+ * Two buffers reference each other, creating a self-evolving system:
+ *
+ *   o1  noise layer — rotating noise fed back through o0's scroll
+ *   o0  feedback loop — o0 feeding into itself, modulated and layered with o1
+ *
  * AUDIO → VISUAL MAPPING
  * ───────────────────────
- *   bass   → scale()           Global expansion / contraction of the form.
- *                               Kick/low-end makes the visual "breathe" outward.
+ *   bass   → noise grain scale     Deep hits coarsen the noise texture.
+ *   bass   → modulateHue amount    Low-end pulses warp the hue modulation depth.
  *
- *   mid    → modulateScale()   Warp intensity of the noise-based distortion layer.
- *                               Voice and melodic content create organic deformation.
+ *   mid    → noise animation speed Voice/melody accelerates noise evolution.
+ *   mid    → hue shift             Mid content drifts the overall hue.
+ *   mid    → o0 scroll speed       Mid energy pulls the feedback horizontally.
  *
- *   mid    → modulateRotate()  Rotational instability.
- *                               Mid energy twists the visual around its center.
+ *   treble → rotation speed        High-frequency content spins the noise layer.
+ *   treble → o1 hue offset         Treble shifts the color of the noise layer.
  *
- *   treble → osc frequency     High-frequency content speeds up oscillator banding.
- *                               Cymbals/air introduce rapid texture change.
- *
- *   treble → color offset      Chromatic shift (third osc() parameter).
- *                               Treble pushes hues apart — a glitch flicker effect.
- *
- *   treble → .color() red ch.  The red channel swells with treble — hot, electric.
- *
- *   bass   → noise scale       The coarseness of the noise modulator grows with bass.
- *                               Deep hits produce large, punchy distortion blocks.
- *
- * PATCH STRUCTURE
- * ────────────────
- *   osc()             — oscillating stripe layer, base of the visual
- *   .color()          — per-channel RGB response to treble / mid / bass
- *   .modulateScale()  — noise warp driven by bass (shape) and mid (intensity)
- *   .modulateRotate() — rotational twist driven by mid
- *   .scale()          — global zoom / breathing driven by bass
- *   .out()            — route to the default output buffer (o0)
+ *   level  → saturation            Overall mic presence drives color richness.
+ *   level  → gradient saturation   Overall energy saturates the layer blend.
  */
 
 // Hydra is loaded via CDN script tag in index.html — no import needed.
@@ -126,60 +117,51 @@ export class HydraSetup {
     // Read intensity on every tick so state changes take effect immediately.
     const intensity = () => STATE_INTENSITY[stateStore.current];
 
-    // ── Base oscillator ──────────────────────────────────────────────────────
-    // osc(frequency, sync, colorOffset)
+    // ── Buffer o1: noise layer ───────────────────────────────────────────────
+    // A rotating noise field that feeds back through o0's scroll.
+    // Acts as both an independent texture and a modulation source for o0.
+    noise(
+      () => 1   + audioState.bass   * 2   * intensity(),  // bass   → noise grain scale
+      () => 0.2 + audioState.mid    * 0.3                 // mid    → noise speed (always animates)
+    )
+      .rotate(
+        2,
+        () => 0.5 + audioState.treble * 1.5 * intensity() // treble → spin speed
+      )
+      .layer(
+        src(o0).scrollX(() => 0.2 + audioState.mid * 0.3 * intensity()) // mid → horizontal pull
+      )
+      .out(o1);
+
+    // ── Buffer o0: feedback loop ─────────────────────────────────────────────
+    // o0 feeds into itself — each frame is a transformation of the last.
+    // The slow scale (.999) and slight brightness (1.01) cause the image to
+    // gradually breathe inward while brightening, prevented from collapsing
+    // by the o1 layer injection at the bottom.
     //
-    //   frequency:   base of 4, audio-driven addition scaled by state intensity.
-    //   sync:        fixed slow scroll — not audio-driven, stays constant.
-    //   colorOffset: treble splits RGB bands; intensity scales the effect.
-    osc(
-      () => 4 + audioState.mid    * 18  * intensity(),   // mid → stripe density
-      0.05,                                               // fixed slow drift
-      () =>     audioState.treble * 2.8 * intensity()    // treble → chromatic flicker
-    )
+    // At collapse (intensity=1.75), saturation and modulateHue exceed their
+    // designed ceilings — Hydra wraps these into blown-out color fragmentation.
+    src(o0)
+      .saturate(() => 1.01 + audioState.level  * 0.4  * intensity()) // level  → color richness
+      .scale(   () => 0.999 - audioState.bass  * 0.008 * intensity()) // bass   → subtle inward pulse
+      .color(1.01, 1.01, 1.01)                                         // fixed slight brighten each frame
+      .hue(     () => 0.01  + audioState.mid   * 0.04  * intensity()) // mid    → hue drift
+      .modulateHue(
+        src(o1)
+          .hue(     () => 0.3 + audioState.treble * 0.4 * intensity()) // treble → o1 hue offset
+          .posterize(-1)
+          .contrast(0.7),
+        () => 2 + audioState.bass * 3 * intensity()                    // bass   → modulation depth
+      )
+      .layer(
+        src(o1)
+          .luma()
+          .mult(
+            gradient(1).saturate(() => 0.9 + audioState.level * 0.5 * intensity()) // level → blend saturation
+          )
+      )
+      .out(o0);
 
-    // ── Per-channel color response ────────────────────────────────────────────
-    // Base channel values (0.7, 0.35, 0.9) are always present — the visual is
-    // never dark. Audio-driven additions are scaled by intensity.
-    // At collapse (intensity=1.75) values exceed 1.0 — Hydra wraps these into
-    // blown-out, fragmented color, which suits the collapse aesthetic.
-    .color(
-      () => 0.7  + audioState.treble * 1.1  * intensity(),  // treble → red flicker
-      () => 0.35 + audioState.mid    * 0.55 * intensity(),  // mid    → green warmth
-      () => 0.9  - audioState.bass   * 0.5  * intensity()   // bass   → blue suppression
-    )
-
-    // ── Noise-based scale modulation ─────────────────────────────────────────
-    // Base noise values keep the visual gently alive even at idle.
-    // Audio-driven contributions are scaled by intensity.
-    .modulateScale(
-      noise(
-        () => 1.5 + audioState.bass * 4.5  * intensity(),  // bass → noise grain scale
-        () => 0.2 + audioState.mid  * 0.45                 // mid  → noise speed (always animates)
-      ),
-      () => 0.15 + audioState.mid * 0.9 * intensity()      // mid  → warp intensity
-    )
-
-    // ── Rotational modulation ─────────────────────────────────────────────────
-    // Base osc frequency of 2 keeps a subtle spin always present.
-    // Treble and mid contributions are scaled by intensity.
-    .modulateRotate(
-      osc(
-        () => 2 + audioState.treble * 12 * intensity(),   // treble → spin frequency
-        0.03
-      ),
-      () => audioState.mid * 0.55 * intensity()           // mid → rotation intensity
-    )
-
-    // ── Global scale (breathing) ──────────────────────────────────────────────
-    // At idle the visual sits at ~80% scale.
-    // Bass breathing is scaled by intensity — at collapse, a hard kick pushes
-    // scale to ~1.675, causing the visual to spill beyond screen edges.
-    .scale(
-      () => 0.8 + audioState.bass * 0.5 * intensity()    // bass → expansion
-    )
-
-    // Route to the default Hydra output buffer.
-    .out();
+    render(o0);
   }
 }
