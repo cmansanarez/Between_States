@@ -38,14 +38,20 @@ export class ARSystem {
     };
 
     this._mindar     = null;
+    this._video      = null;
     this._loopActive = false;
   }
 
   /**
    * init(facingMode)
    * ─────────────────
-   * Creates a MindAR instance inside #ar-container, starts face tracking,
-   * and begins the animation loop that updates arState each frame.
+   * Two-phase startup:
+   *   1. Start a plain camera video stream immediately — camera is visible
+   *      regardless of whether MindAR loads successfully.
+   *   2. Attempt to load MindAR and layer face tracking on top. If MindAR
+   *      fails (import error, three.js resolution, etc.) the camera feed
+   *      stays visible and the experience continues without tracking.
+   *
    * Must be called from inside a user-gesture handler (camera permission).
    *
    * @param {'user'|'environment'} facingMode — which camera to use
@@ -53,8 +59,61 @@ export class ARSystem {
   async init(facingMode = 'user') {
     this.arState.facingMode = facingMode;
 
-    // Dynamic import — MindAR is an ES module and won't set window globals
-    // when loaded via a plain <script> tag. import() works correctly.
+    // ── Phase 1: plain camera feed ───────────────────────────────────────────
+    // Always runs. Shows camera immediately, independent of MindAR.
+    await this._startCameraFallback(facingMode);
+
+    // ── Phase 2: MindAR face tracking ────────────────────────────────────────
+    // Attempted on top of the camera feed. Non-fatal if it fails.
+    try {
+      await this._startMindAR(facingMode);
+    } catch (err) {
+      console.warn('[AR] Face tracking unavailable, camera-only mode:', err.message ?? err);
+    }
+  }
+
+  /**
+   * _startCameraFallback(facingMode)
+   * ─────────────────────────────────
+   * Creates a <video> element in #ar-container and starts the camera stream.
+   * This is the guaranteed camera layer — visible even if MindAR fails.
+   */
+  async _startCameraFallback(facingMode) {
+    const container = document.getElementById('ar-container');
+
+    this._video = document.createElement('video');
+    this._video.setAttribute('autoplay', '');
+    this._video.setAttribute('playsinline', '');
+    this._video.setAttribute('muted', '');
+    this._video.style.cssText = `
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: ${facingMode === 'user' ? 'scaleX(-1)' : 'none'};
+    `;
+    container.appendChild(this._video);
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    this._video.srcObject = stream;
+
+    await new Promise(resolve =>
+      this._video.addEventListener('loadedmetadata', resolve, { once: true })
+    );
+
+    console.log(`[AR] Camera feed started — facingMode: ${facingMode}`);
+  }
+
+  /**
+   * _startMindAR(facingMode)
+   * ─────────────────────────
+   * Loads MindAR via dynamic import and starts face tracking.
+   * MindAR will create its own video element and Three.js canvas inside
+   * #ar-container on top of the fallback video.
+   */
+  async _startMindAR(facingMode) {
     const { MindARThree } = await import(
       'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js'
     );
@@ -63,7 +122,7 @@ export class ARSystem {
 
     this._mindar = new MindARThree({
       container,
-      uiLoading: 'no',
+      uiLoading:  'no',
       uiScanning: 'no',
       uiError:    'no',
     });
@@ -71,14 +130,10 @@ export class ARSystem {
     const { renderer, scene, camera } = this._mindar;
 
     // Nose-tip anchor — group.visible reflects live face detection state.
-    // No mesh is added to the anchor, so nothing renders in the Three.js scene;
-    // MindAR still updates the anchor's visibility each frame.
     const anchor = this._mindar.addAnchor(1);
 
     await this._mindar.start();
 
-    // MindAR always opens the front camera first. If back is requested,
-    // swap the video stream now that the camera pipeline is running.
     if (facingMode === 'environment') {
       await this._swapVideoFacing('environment');
     }
@@ -95,7 +150,7 @@ export class ARSystem {
       this.arState.faceDetected = detected;
     });
 
-    console.log(`[AR] Started — facingMode: ${facingMode}`);
+    console.log('[AR] MindAR face tracking started');
   }
 
   /**
@@ -119,6 +174,7 @@ export class ARSystem {
    */
   async stop() {
     this._loopActive = false;
+
     if (this._mindar) {
       try {
         this._mindar.renderer.setAnimationLoop(null);
@@ -126,6 +182,13 @@ export class ARSystem {
       } catch (_) { /* ignore cleanup errors */ }
       this._mindar = null;
     }
+
+    if (this._video?.srcObject) {
+      this._video.srcObject.getTracks().forEach(t => t.stop());
+      this._video.srcObject = null;
+      this._video = null;
+    }
+
     this.arState.faceDetected = false;
   }
 
