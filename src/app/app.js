@@ -186,15 +186,14 @@ export class App {
    *   silence  → opacity 0  → camera fully visible
    *   loud     → opacity 1  → Hydra fully dominates
    *
-   * A power curve (^0.5) keeps the transition gradual — the camera stays
-   * clearly visible at low-moderate audio before Hydra takes over.
-   * The level is multiplied by 2.5 so moderate speaking (~0.4) reaches
-   * full opacity rather than requiring maximum volume.
+   * A power curve (^0.4) shapes how quickly opacity ramps once moving.
+   * The level is multiplied by 8 so quiet speaking (~0.1–0.15) is enough
+   * to bring Hydra in — previously required much louder input at 2.5×.
    */
   _startBlendLoop() {
     const update = () => {
       const level   = this._audioAnalyzer.state.level;
-      const opacity = Math.min(Math.pow(level * 2.5, 0.5), 1);
+      const opacity = Math.min(Math.pow(level * 8, 0.4), 1);
       this._hydraCanvas.style.opacity = opacity;
       this._blendRaf = requestAnimationFrame(update);
     };
