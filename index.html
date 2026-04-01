@@ -18,6 +18,16 @@
     <script>eruda.init();</script>
 
     <!-- Heavy libs loaded via CDN — they rely on browser globals and don't bundle cleanly -->
+    <!-- Import map: resolves bare 'three' specifier used inside MindAR's ES module -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+          "three/": "https://cdn.jsdelivr.net/npm/three@0.158.0/"
+        }
+      }
+    </script>
+
     <!-- MindAR is loaded via dynamic import() in arSystem.js — it's an ES module -->
     <script src="https://unpkg.com/hydra-synth@1.4.0/dist/hydra-synth.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
