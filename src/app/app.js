@@ -88,18 +88,27 @@ export class App {
         console.warn('[Between States] Motion sensor unavailable:', motionErr.message ?? motionErr);
       }
 
+      // flashState is read by the Hydra patch every tick via arrow functions.
+      // pixelate: 1 = no visible effect (1px blocks = passthrough).
+      // A tap sets it to 100 and _startFlashDecay() exponentially returns it to 1.
+      this._flashState = { pixelate: 1 };
+
       // Switch the Hydra patch from idle → reactive.
-      // All three state objects are passed as live references so Hydra's
+      // All state objects are passed as live references so Hydra's
       // arrow functions always read the current frame's values.
       this._hydraSetup.setReactivePatch(
         this._audioAnalyzer.state,
         this._stateStore,
-        this._motionSensor.state
+        this._motionSensor.state,
+        this._flashState
       );
 
       // Fade out the overlay. The CSS transition handles the animation;
       // we just add the class. The overlay is pointer-events: none after fade.
       this._overlay.classList.add('hidden');
+
+      // Attach the in-experience tap listener now that the overlay is gone.
+      this._setupTapFlash();
 
     } catch (err) {
       // Mic access was denied or the AudioContext failed.
@@ -124,5 +133,46 @@ export class App {
       this._overlay.addEventListener('click',    retryHandler, { once: true });
       this._overlay.addEventListener('touchend', retryHandler, { once: true });
     }
+  }
+
+  /**
+   * _setupTapFlash()
+   * ─────────────────
+   * Attaches a document-level tap listener that triggers a pixelate flash
+   * on the o1 Hydra buffer. Called once the overlay has faded out.
+   *
+   * The overlay becomes pointer-events: none after fade, so all taps on the
+   * canvas reach the document and trigger this handler.
+   */
+  _setupTapFlash() {
+    const onTap = () => {
+      this._flashState.pixelate = 100;
+      this._startFlashDecay();
+    };
+    document.addEventListener('click',    onTap);
+    document.addEventListener('touchend', onTap);
+  }
+
+  /**
+   * _startFlashDecay()
+   * ───────────────────
+   * Exponentially decays flashState.pixelate from 100 back to 1 using
+   * requestAnimationFrame. Each frame pulls the value 10% closer to 1,
+   * giving a fast initial drop that slows as it settles — ~0.75 s total.
+   */
+  _startFlashDecay() {
+    if (this._flashRaf) cancelAnimationFrame(this._flashRaf);
+
+    const decay = () => {
+      this._flashState.pixelate += (1 - this._flashState.pixelate) * 0.1;
+      if (this._flashState.pixelate > 1.5) {
+        this._flashRaf = requestAnimationFrame(decay);
+      } else {
+        this._flashState.pixelate = 1;
+        this._flashRaf = null;
+      }
+    };
+
+    this._flashRaf = requestAnimationFrame(decay);
   }
 }

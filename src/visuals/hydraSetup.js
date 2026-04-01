@@ -109,8 +109,9 @@ export class HydraSetup {
    * @param {object}     audioState   — live reference from AudioAnalyzer.state
    * @param {StateStore} stateStore   — live reference to current system state
    * @param {object}     motionState  — live reference from MotionSensor.state
+   * @param {object}     flashState   — { pixelate: 1–100 } driven by tap; decays back to 1
    */
-  setReactivePatch(audioState, stateStore, motionState) {
+  setReactivePatch(audioState, stateStore, motionState, flashState) {
     const STATE_INTENSITY = {
       idle:       0.12,
       emergence:  0.40,
@@ -167,6 +168,15 @@ export class HydraSetup {
         const seq = [1, 2, 4, 8, 3, 1, 2, 6, 4];
         return seq[Math.floor(time * 2) % seq.length];
       })
+
+      // ── Tap flash: pixelate burst ────────────────────────────────────────
+      // pixelate(1) = 1px blocks = passthrough (no visible effect).
+      // A tap sets flashState.pixelate to 100, then _startFlashDecay() in
+      // app.js exponentially returns it to 1 over ~0.75 s.
+      .pixelate(
+        () => flashState.pixelate,
+        () => flashState.pixelate
+      )
 
       .out(o1);
 
