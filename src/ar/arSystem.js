@@ -166,27 +166,30 @@ export class ARSystem {
       console.warn('[AR] video.play() failed:', e.message)
     );
 
-    console.log('[AR] Initialising ml5.faceMesh...');
-    this._faceMesh = await new Promise((resolve, reject) => {
-      try {
-        const fm = ml5.faceMesh(
-          { maxFaces: 1, flipHorizontal: true },
-          () => {
-            console.log('[AR] ml5.faceMesh model ready');
-            resolve(fm);
-          }
-        );
-      } catch (e) {
-        reject(e);
+    // ml5 v1.x returns a Promise directly — use await rather than callback wrapping.
+    console.log('[AR] Initialising ml5.faceMesh (await pattern)...');
+    this._faceMesh = await ml5.faceMesh({ maxFaces: 1, flipHorizontal: true });
+    console.log('[AR] ml5.faceMesh model ready:', this._faceMesh);
+
+    // One-shot detect to confirm the model can see the video at all before
+    // committing to detectStart. Logs raw face count + first keypoint if any.
+    console.log('[AR] Running one-shot detect test...');
+    try {
+      const testFaces = await this._faceMesh.detect(this._video);
+      console.log('[AR] One-shot detect result — faces:', testFaces.length);
+      if (testFaces.length > 0) {
+        console.log('[AR] First face box:', JSON.stringify(testFaces[0].box));
       }
-    });
+    } catch (e) {
+      console.warn('[AR] One-shot detect failed:', e.message);
+    }
 
     // Log face count every 3 seconds so we can see if detection ever succeeds.
     this._debugInterval = setInterval(() => {
       console.log('[AR] face count this tick:', this._lastFaceCount ?? 'no callback yet');
     }, 3000);
 
-    console.log('[AR] Calling detectStart (flipHorizontal: true)');
+    console.log('[AR] Calling detectStart...');
     this._faceMesh.detectStart(this._video, (faces) => {
       this._lastFaceCount = faces.length;
       this._onFaces(faces);
