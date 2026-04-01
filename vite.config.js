@@ -11,6 +11,6 @@ export default {
   // hydra-synth uses regl and other browser-global dependencies that need
   // to be included in Vite's dep-optimization step.
   optimizeDeps: {
-    include: ['hydra-synth', 'p5'],
+    include: ['p5'],
   },
 };

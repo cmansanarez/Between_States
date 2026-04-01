@@ -43,7 +43,8 @@
  *   .out()            — route to the default output buffer (o0)
  */
 
-import Hydra from 'hydra-synth';
+// Hydra is loaded via CDN script tag in index.html — no import needed.
+/* global Hydra */
 
 export class HydraSetup {
   /**
