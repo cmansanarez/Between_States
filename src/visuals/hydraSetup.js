@@ -170,12 +170,18 @@ export class HydraSetup {
       })
 
       // ── Tap flash: pixelate burst ────────────────────────────────────────
-      // pixelate(1) = 1px blocks = passthrough (no visible effect).
-      // A tap sets flashState.pixelate to 100, then _startFlashDecay() in
-      // app.js exponentially returns it to 1 over ~0.75 s.
+      // Hydra's pixelate(x, y) is number of divisions, NOT block size:
+      //   high value (400) = 400 fine divisions = invisible
+      //   low value  (4)   = 4 large blocks     = strong pixelation
+      //
+      // We invert flashState.pixelate (1–100) so the user-facing value
+      // behaves intuitively: 100 = strongest effect, 1 = no effect.
+      //   flashState=100 → 400/100 = 4   divisions (big chunky blocks)
+      //   flashState=10  → 400/10  = 40  divisions (medium blocks, mid-decay)
+      //   flashState=1   → 400/1   = 400 divisions (invisible, at rest)
       .pixelate(
-        () => flashState.pixelate,
-        () => flashState.pixelate
+        () => Math.max(1, Math.round(400 / flashState.pixelate)),
+        () => Math.max(1, Math.round(400 / flashState.pixelate))
       )
 
       .out(o1);
