@@ -135,7 +135,7 @@ export class HydraSetup {
       .rotate(
         2,
         () => 0.5 + audioState.treble * 1.5 * intensity()
-                  + motionState.tilt  * 2               // tilt   → faster spin (destabilise)
+                  + motionState.tilt  * 2               // tilt   → base spin accelerates as device flattens
       )
       .layer(
         src(o0).scrollX(
@@ -143,6 +143,31 @@ export class HydraSetup {
                     + motionState.energy * 0.4           // energy → horizontal displacement
         )
       )
+
+      // ── Tilt: perpendicular → parallel ──────────────────────────────────
+      // Both ops scale from zero when upright (tilt=0) to full when flat (tilt=1).
+      // modulateRotate warps the noise field rotationally using a circular mask;
+      // rotate adds a continuous spin whose speed grows with tilt amount.
+      .modulateRotate(
+        shape(999, 0.3, 0.5),
+        () => motionState.tilt * 1.57                   // tilt → rotational displacement
+      )
+      .rotate(
+        0,
+        () => motionState.tilt * 0.1                    // tilt → continuous spin speed
+      )
+
+      // ── Shake: kaleidoscope on acceleration ──────────────────────────────
+      // kaleid(1) is a passthrough — no effect when still.
+      // When shake energy crosses the threshold, cycles through the same
+      // sequence as [1,2,4,8,3,1,2,6,4].fast(2).smooth(.4) using `time`
+      // to step through values at 2 Hz, matching the original array speed.
+      .kaleid(() => {
+        if (motionState.energy < 0.15) return 1;
+        const seq = [1, 2, 4, 8, 3, 1, 2, 6, 4];
+        return seq[Math.floor(time * 2) % seq.length];
+      })
+
       .out(o1);
 
     // ── Buffer o0: feedback loop ─────────────────────────────────────────────
