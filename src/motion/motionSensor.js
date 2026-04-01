@@ -70,6 +70,14 @@ export class MotionSensor {
 
     window.addEventListener('devicemotion',      (e) => this._onMotion(e));
     window.addEventListener('deviceorientation', (e) => this._onOrientation(e));
+
+    // Log motion values once per second so eruda console shows live readings.
+    // Remove when motion behaviour is confirmed.
+    setInterval(() => {
+      console.log(
+        `[Motion] energy: ${this.state.energy.toFixed(3)}  tilt: ${this.state.tilt.toFixed(3)}`
+      );
+    }, 1000);
   }
 
   /**
