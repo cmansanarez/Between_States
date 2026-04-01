@@ -110,8 +110,9 @@ export class HydraSetup {
    * @param {StateStore} stateStore   — live reference to current system state
    * @param {object}     motionState  — live reference from MotionSensor.state
    * @param {object}     flashState   — { pixelate: 1–100 } driven by tap; decays back to 1
+   * @param {object}     arState      — live reference from ARSystem.arState
    */
-  setReactivePatch(audioState, stateStore, motionState, flashState) {
+  setReactivePatch(audioState, stateStore, motionState, flashState, arState) {
     const STATE_INTENSITY = {
       idle:       0.12,
       emergence:  0.40,
@@ -120,7 +121,9 @@ export class HydraSetup {
     };
 
     // Read intensity on every tick so state changes take effect immediately.
-    const intensity = () => STATE_INTENSITY[stateStore.current];
+    // faceSize boosts intensity when face is close — proximity = more aggression.
+    const intensity = () =>
+      STATE_INTENSITY[stateStore.current] * (1 + arState.faceSize * 0.6);
 
     // ── Buffer o1: noise layer ───────────────────────────────────────────────
     // A rotating noise field that feeds back through o0's scroll.
@@ -135,8 +138,9 @@ export class HydraSetup {
     )
       .rotate(
         2,
-        () => 0.5 + audioState.treble * 1.5 * intensity()
-                  + motionState.tilt  * 2               // tilt   → base spin accelerates as device flattens
+        () => 0.5 + audioState.treble  * 1.5 * intensity()
+                  + motionState.tilt   * 2              // tilt        → spin accelerates as device flattens
+                  + arState.headTilt   * 0.3            // headTilt    → spin direction follows head angle
       )
       .layer(
         src(o0).scrollX(
@@ -195,17 +199,27 @@ export class HydraSetup {
     // At collapse (intensity=1.75), saturation and modulateHue exceed their
     // designed ceilings — Hydra wraps these into blown-out color fragmentation.
     src(o0)
-      .saturate(() => 1.01 + audioState.level  * 0.4  * intensity()) // level  → color richness
-      .scale(   () => 0.999 - audioState.bass  * 0.008 * intensity()) // bass   → subtle inward pulse
+      .saturate(() => 1.01 + audioState.level  * 0.4  * intensity()) // level     → color richness
+      .scale(   () => 0.999 - audioState.bass  * 0.008 * intensity()) // bass      → subtle inward pulse
       .color(1.01, 1.01, 1.01)                                         // fixed slight brighten each frame
-      .hue(     () => 0.01  + audioState.mid   * 0.04  * intensity()) // mid    → hue drift
+      .hue(     () => 0.01  + audioState.mid   * 0.04  * intensity()) // mid       → hue drift
+
+      // ── Face position: visual follows the face ───────────────────────────
+      // faceX/faceY are 0–1 normalised. We map them to a small scroll offset
+      // so the feedback loop drifts toward wherever the face is in frame.
+      // Remapped to −0.1…+0.1 range so the effect is subtle but perceptible.
+      .scrollX(() => (arState.faceX - 0.5) * 0.2)  // faceX → horizontal drift
+      .scrollY(() => (arState.faceY - 0.5) * 0.2)  // faceY → vertical drift
+
       .modulateHue(
         src(o1)
-          .hue(     () => 0.3 + audioState.treble * 0.4 * intensity()) // treble → o1 hue offset
+          .hue(     () => 0.3 + audioState.treble * 0.4 * intensity()) // treble    → o1 hue offset
           .posterize(-1)
           .contrast(0.7),
+        // mouth open directly drives warp depth — speaking warps colour
         () => 2 + audioState.bass    * 3   * intensity()
-                + motionState.energy * 4                               // energy → modulation depth
+                + motionState.energy * 4
+                + arState.mouthOpen  * 6                               // mouthOpen → colour warp
       )
       .layer(
         src(o1)

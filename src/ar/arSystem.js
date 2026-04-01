@@ -36,9 +36,11 @@ export class ARSystem {
   constructor() {
     this.arState = {
       faceDetected: false,
-      faceX:        0.5,
-      faceY:        0.5,
-      faceSize:     0,
+      faceX:        0.5,   // normalised 0–1, face centre horizontal
+      faceY:        0.5,   // normalised 0–1, face centre vertical
+      faceSize:     0,     // normalised 0–1, face width / video width
+      mouthOpen:    0,     // normalised 0–1, lip separation / face height
+      headTilt:     0,     // −1 to 1, eye-corner angle (neg=left, pos=right)
       facingMode:   'user',
     };
 
@@ -174,15 +176,41 @@ export class ARSystem {
     this.arState.faceDetected = detected;
 
     if (detected) {
-      const box  = faces[0].box;
+      const face = faces[0];
+      const kp   = face.keypoints;
+      const box  = face.box;
       const vw   = this._video.videoWidth  || 1;
       const vh   = this._video.videoHeight || 1;
 
+      // ── Bounding box → position + size ──────────────────────────────────
       this.arState.faceX    = Math.min((box.xMin + box.width  * 0.5) / vw, 1);
       this.arState.faceY    = Math.min((box.yMin + box.height * 0.5) / vh, 1);
       this.arState.faceSize = Math.min(box.width / vw, 1);
+
+      // ── Mouth openness ───────────────────────────────────────────────────
+      // Keypoint 13 = upper inner lip centre, 14 = lower inner lip centre.
+      // Lip separation normalised by face bounding box height → 0–1.
+      // Closed mouth ≈ 0, wide open ≈ 0.15–0.25 (clamped to 1).
+      if (kp[13] && kp[14]) {
+        const lipGap = Math.abs(kp[14].y - kp[13].y);
+        this.arState.mouthOpen = Math.min(lipGap / (box.height * 0.15), 1);
+      }
+
+      // ── Head tilt ────────────────────────────────────────────────────────
+      // Keypoint 33 = right eye outer corner, 263 = left eye outer corner.
+      // dy / dx gives the slope of the eye line — normalised to −1 … 1.
+      // 0 = level, positive = tilted right, negative = tilted left.
+      if (kp[33] && kp[263]) {
+        const dx    = kp[263].x - kp[33].x || 1;
+        const dy    = kp[263].y - kp[33].y;
+        const slope = dy / Math.abs(dx);
+        this.arState.headTilt = Math.max(-1, Math.min(slope * 4, 1));
+      }
+
     } else {
-      this.arState.faceSize = 0;
+      this.arState.faceSize  = 0;
+      this.arState.mouthOpen = 0;
+      this.arState.headTilt  = 0;
     }
   }
 }

@@ -111,7 +111,8 @@ export class App {
         this._audioAnalyzer.state,
         this._stateStore,
         this._motionSensor.state,
-        this._flashState
+        this._flashState,
+        this._arSystem.arState
       );
 
       // Fade out the overlay. The CSS transition handles the animation;
@@ -180,21 +181,47 @@ export class App {
   /**
    * _startBlendLoop()
    * ──────────────────
-   * Runs a requestAnimationFrame loop that sets the Hydra canvas opacity
-   * from audioState.level each frame.
+   * Each frame:
+   *   1. Sets Hydra canvas opacity from audio level (silence=0, loud=1).
+   *   2. When a face is detected, applies a CSS radial-gradient mask on the
+   *      Hydra canvas so it is fully opaque at the face centre and fades to
+   *      a low base opacity (~20%) at the edges — "face becomes glitch".
+   *      Without a face, the mask is removed and opacity applies uniformly.
    *
-   *   silence  → opacity 0  → camera fully visible
-   *   loud     → opacity 1  → Hydra fully dominates
+   * The mask is a radial-gradient from black (opaque) at centre to a
+   * semi-transparent grey at the edges. CSS mask-image uses luminance —
+   * black = fully masked (hidden), white = fully visible.
+   * We invert this: white at centre (show Hydra), dark at edges (show camera).
    *
-   * A power curve (^0.4) shapes how quickly opacity ramps once moving.
-   * The level is multiplied by 8 so quiet speaking (~0.1–0.15) is enough
-   * to bring Hydra in — previously required much louder input at 2.5×.
+   * Face mask radius is 1.5× faceSize so it generously covers the whole
+   * head rather than just the bounding box centre.
    */
   _startBlendLoop() {
+    const arState = this._arSystem.arState;
+
     const update = () => {
       const level   = this._audioAnalyzer.state.level;
       const opacity = Math.min(Math.pow(level * 8, 0.4), 1);
       this._hydraCanvas.style.opacity = opacity;
+
+      if (arState.faceDetected) {
+        // Convert normalised face position to CSS percentages.
+        const cx     = (arState.faceX * 100).toFixed(1) + '%';
+        const cy     = (arState.faceY * 100).toFixed(1) + '%';
+        // Radius: faceSize * 1.5 in viewport-width units covers head + hair.
+        const radius = (arState.faceSize * 150).toFixed(1) + 'vw';
+
+        // white centre = Hydra fully visible; rgba(0,0,0,0.2) edge = 20% bleed
+        this._hydraCanvas.style.webkitMaskImage =
+          `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 30%, rgba(0,0,0,0.2) 100%)`;
+        this._hydraCanvas.style.maskImage =
+          `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 30%, rgba(0,0,0,0.2) 100%)`;
+      } else {
+        // No face — remove mask, audio-driven opacity applies uniformly.
+        this._hydraCanvas.style.webkitMaskImage = 'none';
+        this._hydraCanvas.style.maskImage       = 'none';
+      }
+
       this._blendRaf = requestAnimationFrame(update);
     };
     this._blendRaf = requestAnimationFrame(update);
