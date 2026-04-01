@@ -47,25 +47,42 @@ export class MotionSensor {
       tilt:   0,   // smoothed tilt angle magnitude, normalized 0–1
     };
 
-    this._smoothedEnergy = 0;
-    this._smoothedTilt   = 0;
+    this._smoothedEnergy   = 0;
+    this._smoothedTilt     = 0;
+    this._permissionGranted = false;
   }
 
   /**
-   * init()
-   * ──────
-   * Requests motion permission (iOS) and attaches event listeners.
-   * Must be called from inside a user-gesture handler.
-   * Returns a Promise that resolves once listeners are attached.
+   * requestPermission()
+   * ───────────────────
+   * Requests the iOS motion permission ONLY — does not start listeners.
+   * Must be the first async call inside a user-gesture handler, before any
+   * other awaited operation (e.g. mic init) that would break the gesture
+   * context iOS requires for this permission.
+   *
+   * On Android and desktop the API doesn't exist — resolves immediately.
    */
-  async init() {
-    // iOS 13+ requires explicit permission for motion events.
-    // On Android and desktop the API doesn't exist — skip the request.
+  async requestPermission() {
     if (typeof DeviceMotionEvent?.requestPermission === 'function') {
       const permission = await DeviceMotionEvent.requestPermission();
       if (permission !== 'granted') {
         throw new Error('motion permission denied');
       }
+    }
+    this._permissionGranted = true;
+  }
+
+  /**
+   * init()
+   * ──────
+   * Attaches event listeners and starts logging.
+   * Call this after requestPermission() has resolved and after audio init.
+   * On non-iOS devices, handles the permission check itself since no
+   * gesture context restriction applies.
+   */
+  async init() {
+    if (!this._permissionGranted) {
+      await this.requestPermission();
     }
 
     window.addEventListener('devicemotion',      (e) => this._onMotion(e));

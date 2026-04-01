@@ -68,17 +68,24 @@ export class App {
       // This call triggers the browser's mic-permission dialog on first run.
       // On iOS/Safari the AudioContext is only allowed to start here because
       // we are synchronously inside the user-gesture event handler.
+      // Request motion permission FIRST — iOS requires this within the
+      // synchronous gesture stack, before any other awaited operation.
+      // The mic init below triggers a separate permission dialog which
+      // breaks the gesture context, so motion must be requested before it.
+      // Non-fatal: if denied or unavailable, visuals still work via audio.
+      try {
+        await this._motionSensor.requestPermission();
+      } catch (motionErr) {
+        console.warn('[Between States] Motion permission unavailable:', motionErr.message ?? motionErr);
+      }
+
       await this._audioAnalyzer.init();
 
-      // Request motion permission and start sensor.
-      // On iOS, requestPermission() must be called within a user gesture —
-      // we're already inside the tap handler, so this is safe.
-      // On Android / desktop the init() call is a no-op permission check.
-      // Motion failure is non-fatal: the experience works without it.
+      // Now start the motion listeners (permission already granted above).
       try {
         await this._motionSensor.init();
       } catch (motionErr) {
-        console.warn('[Between States] Motion sensor unavailable:', motionErr);
+        console.warn('[Between States] Motion sensor unavailable:', motionErr.message ?? motionErr);
       }
 
       // Switch the Hydra patch from idle → reactive.
