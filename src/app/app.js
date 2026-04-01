@@ -15,10 +15,12 @@ export class App {
   /**
    * @param {AudioAnalyzer} audioAnalyzer  — audio capture + FFT module
    * @param {HydraSetup}    hydraSetup     — Hydra canvas + patch module
+   * @param {StateStore}    stateStore     — live system state container
    */
-  constructor(audioAnalyzer, hydraSetup) {
+  constructor(audioAnalyzer, hydraSetup, stateStore) {
     this._audioAnalyzer = audioAnalyzer;
     this._hydraSetup    = hydraSetup;
+    this._stateStore    = stateStore;
 
     this._overlay  = document.getElementById('overlay');
     this._errorMsg = document.getElementById('error-msg');
@@ -69,7 +71,7 @@ export class App {
       // Switch the Hydra patch from idle → reactive.
       // We pass the audioState *reference* (not a copy) so Hydra's arrow-
       // function parameters always read the current frame's values.
-      this._hydraSetup.setReactivePatch(this._audioAnalyzer.state);
+      this._hydraSetup.setReactivePatch(this._audioAnalyzer.state, this._stateStore);
 
       // Fade out the overlay. The CSS transition handles the animation;
       // we just add the class. The overlay is pointer-events: none after fade.

@@ -95,85 +95,88 @@ export class HydraSetup {
   }
 
   /**
-   * setReactivePatch(audioState)
-   * ─────────────────────────────
-   * Replaces the idle patch with the full audio-reactive patch.
+   * setReactivePatch(audioState, stateStore)
+   * ─────────────────────────────────────────
+   * Replaces the idle patch with the state-aware audio-reactive patch.
    * Called once the microphone is live (after user tap).
    *
-   * @param {object} audioState  — live reference from AudioAnalyzer.state
-   *   audioState.bass    0–1
-   *   audioState.mid     0–1
-   *   audioState.treble  0–1
-   *   audioState.level   0–1
+   * Audio influence on each parameter is multiplied by a per-state intensity
+   * value, read live on every Hydra render tick via arrow functions:
+   *
+   *   idle        0.12  — barely reactive; system is listening but quiet
+   *   emergence   0.40  — audio starts shaping the visual; forms gather
+   *   distortion  1.00  — full reactivity; the designed experience
+   *   collapse    1.75  — parameters pushed beyond designed range; glitch territory
+   *
+   * At collapse, values intentionally exceed their designed ceilings — Hydra
+   * wraps/clips these in ways that produce fragmentation, which aligns with
+   * the spec's "structure breaks down" intention.
+   *
+   * @param {object}     audioState  — live reference from AudioAnalyzer.state
+   * @param {StateStore} stateStore  — live reference to current system state
    */
-  setReactivePatch(audioState) {
+  setReactivePatch(audioState, stateStore) {
+    const STATE_INTENSITY = {
+      idle:       0.12,
+      emergence:  0.40,
+      distortion: 1.00,
+      collapse:   1.75,
+    };
+
+    // Read intensity on every tick so state changes take effect immediately.
+    const intensity = () => STATE_INTENSITY[stateStore.current];
+
     // ── Base oscillator ──────────────────────────────────────────────────────
     // osc(frequency, sync, colorOffset)
     //
-    //   frequency:   starts at 4, rises to ~22 when mid is maxed.
-    //                Mid content (voice, melody) adds visible stripe density.
-    //
-    //   sync:        fixed slow scroll — the stripes drift gently left.
-    //
-    //   colorOffset: treble pushes the hue offset, splitting RGB bands apart.
-    //                High-frequency hits create chromatic aberration / flicker.
+    //   frequency:   base of 4, audio-driven addition scaled by state intensity.
+    //   sync:        fixed slow scroll — not audio-driven, stays constant.
+    //   colorOffset: treble splits RGB bands; intensity scales the effect.
     osc(
-      () => 4 + audioState.mid * 18,    // mid → oscillator frequency
-      0.05,                              // fixed slow drift
-      () => audioState.treble * 2.8     // treble → RGB color offset (flicker)
+      () => 4 + audioState.mid    * 18  * intensity(),   // mid → stripe density
+      0.05,                                               // fixed slow drift
+      () =>     audioState.treble * 2.8 * intensity()    // treble → chromatic flicker
     )
 
     // ── Per-channel color response ────────────────────────────────────────────
-    // .color(r, g, b)  — multiplies the output RGB channels.
-    //
-    //   red:   treble swells the red channel — hot, electric, glitchy.
-    //   green: mid slightly brightens green — voice/texture warmth.
-    //   blue:  bass suppresses blue — deep hits push toward warm/red.
+    // Base channel values (0.7, 0.35, 0.9) are always present — the visual is
+    // never dark. Audio-driven additions are scaled by intensity.
+    // At collapse (intensity=1.75) values exceed 1.0 — Hydra wraps these into
+    // blown-out, fragmented color, which suits the collapse aesthetic.
     .color(
-      () => 0.7 + audioState.treble * 1.1,   // treble → red flicker
-      () => 0.35 + audioState.mid * 0.55,    // mid → green warmth
-      () => 0.9 - audioState.bass * 0.5      // bass → blue suppression
+      () => 0.7  + audioState.treble * 1.1  * intensity(),  // treble → red flicker
+      () => 0.35 + audioState.mid    * 0.55 * intensity(),  // mid    → green warmth
+      () => 0.9  - audioState.bass   * 0.5  * intensity()   // bass   → blue suppression
     )
 
     // ── Noise-based scale modulation ─────────────────────────────────────────
-    // .modulateScale(source, multiple)
-    //
-    // Uses a noise texture as the modulator. The noise warps the lookup
-    // coordinates of the oscillator — producing organic, fluid distortion.
-    //
-    //   noise scale (1st param):   bass grows the noise grain coarser.
-    //                               Deep hits = large, chunky distortion blocks.
-    //   noise speed (2nd param):   mid accelerates the noise evolution.
-    //
-    //   multiple:   controls how strongly the noise displaces coordinates.
-    //               Mid energy directly drives warp intensity.
+    // Base noise values keep the visual gently alive even at idle.
+    // Audio-driven contributions are scaled by intensity.
     .modulateScale(
       noise(
-        () => 1.5 + audioState.bass * 4.5,   // bass → noise grain scale
-        () => 0.2 + audioState.mid * 0.45    // mid → noise animation speed
+        () => 1.5 + audioState.bass * 4.5  * intensity(),  // bass → noise grain scale
+        () => 0.2 + audioState.mid  * 0.45                 // mid  → noise speed (always animates)
       ),
-      () => 0.15 + audioState.mid * 0.9      // mid → warp intensity
+      () => 0.15 + audioState.mid * 0.9 * intensity()      // mid  → warp intensity
     )
 
     // ── Rotational modulation ─────────────────────────────────────────────────
-    // .modulateRotate(source, multiple)
-    //
-    // A fast oscillator drives a rotational warp. When treble is high the
-    // oscillator frequency increases, creating rapid spinning disturbance.
-    // The rotation amount itself scales with mid — the system resists stillness.
+    // Base osc frequency of 2 keeps a subtle spin always present.
+    // Treble and mid contributions are scaled by intensity.
     .modulateRotate(
       osc(
-        () => 2 + audioState.treble * 12,    // treble → spin frequency
+        () => 2 + audioState.treble * 12 * intensity(),   // treble → spin frequency
         0.03
       ),
-      () => audioState.mid * 0.55            // mid → rotation intensity
+      () => audioState.mid * 0.55 * intensity()           // mid → rotation intensity
     )
 
     // ── Global scale (breathing) ──────────────────────────────────────────────
-    // Bass energy expands the entire visual outward.
-    // At silence the visual sits at 80% scale; a hard kick pushes it to ~130%.
+    // At idle the visual sits at ~80% scale.
+    // Bass breathing is scaled by intensity — at collapse, a hard kick pushes
+    // scale to ~1.675, causing the visual to spill beyond screen edges.
     .scale(
-      () => 0.8 + audioState.bass * 0.5     // bass → expansion / breathing
+      () => 0.8 + audioState.bass * 0.5 * intensity()    // bass → expansion
     )
 
     // Route to the default Hydra output buffer.

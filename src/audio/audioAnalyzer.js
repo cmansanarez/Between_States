@@ -32,7 +32,14 @@
 /* global p5 */
 
 export class AudioAnalyzer {
-  constructor() {
+  /**
+   * @param {function|null} onUpdate  — optional callback fired every draw() frame
+   *   with the latest audioState. Used by StateMachine to evaluate transitions
+   *   on the same tick that audio values are updated.
+   */
+  constructor(onUpdate = null) {
+    this._onUpdate = onUpdate;
+
     /**
      * state — the shared live audio data object.
      *
@@ -117,6 +124,9 @@ export class AudioAnalyzer {
 
           // getLevel() already returns 0–1 (RMS amplitude of the mic stream).
           this.state.level  = this._mic.getLevel();
+
+          // Notify any observer (e.g. StateMachine) with the freshly updated state.
+          if (this._onUpdate) this._onUpdate(this.state);
         };
       });
     });
