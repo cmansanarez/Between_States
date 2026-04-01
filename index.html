@@ -74,6 +74,20 @@
         z-index: 1;
       }
 
+      /* ── Face debug indicator — remove before final release ── */
+      #face-debug {
+        position: fixed;
+        bottom: 1.2rem;
+        left: 1.2rem;
+        z-index: 200;
+        color: rgba(255, 255, 255, 0.8);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.65rem;
+        letter-spacing: 0.08em;
+        pointer-events: none;
+        display: none;
+      }
+
       /* ── Camera flip button ── */
       #camera-flip {
         position: fixed;
@@ -150,6 +164,9 @@
 
     <!-- Camera flip button — shown after experience starts -->
     <button id="camera-flip" aria-label="flip camera">flip cam</button>
+
+    <!-- Face debug indicator — shown after experience starts, remove before final release -->
+    <div id="face-debug"></div>
 
     <!-- Full-screen overlay — removed once the user grants mic access -->
     <div id="overlay">

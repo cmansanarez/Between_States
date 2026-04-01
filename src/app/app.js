@@ -197,29 +197,45 @@ export class App {
    * head rather than just the bounding box centre.
    */
   _startBlendLoop() {
-    const arState = this._arSystem.arState;
+    const arState  = this._arSystem.arState;
+    const debugEl  = document.getElementById('face-debug');
+    debugEl.style.display = 'block';
 
     const update = () => {
-      const level   = this._audioAnalyzer.state.level;
-      const opacity = Math.min(Math.pow(level * 8, 0.4), 1);
+      const level = this._audioAnalyzer.state.level;
+
+      // When a face is detected, guarantee a minimum opacity of 0.6 so the
+      // mask effect is always visible — even in near-silence the glitch shows
+      // on the face. Audio still pushes it to 1 for full domination.
+      const audioOpacity = Math.min(Math.pow(level * 8, 0.4), 1);
+      const opacity      = arState.faceDetected
+        ? Math.max(audioOpacity, 0.6)
+        : audioOpacity;
+
       this._hydraCanvas.style.opacity = opacity;
 
       if (arState.faceDetected) {
-        // Convert normalised face position to CSS percentages.
-        const cx     = (arState.faceX * 100).toFixed(1) + '%';
-        const cy     = (arState.faceY * 100).toFixed(1) + '%';
-        // Radius: faceSize * 1.5 in viewport-width units covers head + hair.
-        const radius = (arState.faceSize * 150).toFixed(1) + 'vw';
+        const cx = (arState.faceX * 100).toFixed(1) + '%';
+        const cy = (arState.faceY * 100).toFixed(1) + '%';
+        // Radius sized to cover from face centre to just past the head.
+        // faceSize * 120vw at typical selfie distance covers well.
+        const radius = (arState.faceSize * 120).toFixed(1) + 'vw';
 
-        // white centre = Hydra fully visible; rgba(0,0,0,0.2) edge = 20% bleed
-        this._hydraCanvas.style.webkitMaskImage =
-          `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 30%, rgba(0,0,0,0.2) 100%)`;
-        this._hydraCanvas.style.maskImage =
-          `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 30%, rgba(0,0,0,0.2) 100%)`;
+        // Hard centre: white 0%→40% = fully visible glitch on face
+        // Sharp falloff: 40%→70% transition
+        // Edge: transparent (black) = camera shows through cleanly
+        const mask = `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 40%, transparent 70%)`;
+        this._hydraCanvas.style.webkitMaskImage = mask;
+        this._hydraCanvas.style.maskImage       = mask;
+
+        debugEl.textContent =
+          `face ✓  x:${arState.faceX.toFixed(2)} y:${arState.faceY.toFixed(2)} ` +
+          `size:${arState.faceSize.toFixed(2)} mouth:${arState.mouthOpen.toFixed(2)} ` +
+          `tilt:${arState.headTilt.toFixed(2)}`;
       } else {
-        // No face — remove mask, audio-driven opacity applies uniformly.
         this._hydraCanvas.style.webkitMaskImage = 'none';
         this._hydraCanvas.style.maskImage       = 'none';
+        debugEl.textContent = 'face ✗';
       }
 
       this._blendRaf = requestAnimationFrame(update);
