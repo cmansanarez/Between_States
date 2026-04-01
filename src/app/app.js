@@ -16,11 +16,13 @@ export class App {
    * @param {AudioAnalyzer} audioAnalyzer  — audio capture + FFT module
    * @param {HydraSetup}    hydraSetup     — Hydra canvas + patch module
    * @param {StateStore}    stateStore     — live system state container
+   * @param {MotionSensor}  motionSensor   — device motion + orientation module
    */
-  constructor(audioAnalyzer, hydraSetup, stateStore) {
+  constructor(audioAnalyzer, hydraSetup, stateStore, motionSensor) {
     this._audioAnalyzer = audioAnalyzer;
     this._hydraSetup    = hydraSetup;
     this._stateStore    = stateStore;
+    this._motionSensor  = motionSensor;
 
     this._overlay  = document.getElementById('overlay');
     this._errorMsg = document.getElementById('error-msg');
@@ -68,10 +70,25 @@ export class App {
       // we are synchronously inside the user-gesture event handler.
       await this._audioAnalyzer.init();
 
+      // Request motion permission and start sensor.
+      // On iOS, requestPermission() must be called within a user gesture —
+      // we're already inside the tap handler, so this is safe.
+      // On Android / desktop the init() call is a no-op permission check.
+      // Motion failure is non-fatal: the experience works without it.
+      try {
+        await this._motionSensor.init();
+      } catch (motionErr) {
+        console.warn('[Between States] Motion sensor unavailable:', motionErr);
+      }
+
       // Switch the Hydra patch from idle → reactive.
-      // We pass the audioState *reference* (not a copy) so Hydra's arrow-
-      // function parameters always read the current frame's values.
-      this._hydraSetup.setReactivePatch(this._audioAnalyzer.state, this._stateStore);
+      // All three state objects are passed as live references so Hydra's
+      // arrow functions always read the current frame's values.
+      this._hydraSetup.setReactivePatch(
+        this._audioAnalyzer.state,
+        this._stateStore,
+        this._motionSensor.state
+      );
 
       // Fade out the overlay. The CSS transition handles the animation;
       // we just add the class. The overlay is pointer-events: none after fade.

@@ -103,10 +103,14 @@ export class HydraSetup {
    * wraps/clips these in ways that produce fragmentation, which aligns with
    * the spec's "structure breaks down" intention.
    *
-   * @param {object}     audioState  — live reference from AudioAnalyzer.state
-   * @param {StateStore} stateStore  — live reference to current system state
+   * Motion values are NOT scaled by state intensity — shaking destabilizes
+   * the visual regardless of how quiet the audio is, per the M3 spec intent.
+   *
+   * @param {object}     audioState   — live reference from AudioAnalyzer.state
+   * @param {StateStore} stateStore   — live reference to current system state
+   * @param {object}     motionState  — live reference from MotionSensor.state
    */
-  setReactivePatch(audioState, stateStore) {
+  setReactivePatch(audioState, stateStore, motionState) {
     const STATE_INTENSITY = {
       idle:       0.12,
       emergence:  0.40,
@@ -120,16 +124,24 @@ export class HydraSetup {
     // ── Buffer o1: noise layer ───────────────────────────────────────────────
     // A rotating noise field that feeds back through o0's scroll.
     // Acts as both an independent texture and a modulation source for o0.
+    //
+    // Motion contributions are additive and unscaled by state intensity —
+    // shaking destabilizes the visual regardless of audio state.
     noise(
-      () => 1   + audioState.bass   * 2   * intensity(),  // bass   → noise grain scale
-      () => 0.2 + audioState.mid    * 0.3                 // mid    → noise speed (always animates)
+      () => 1   + audioState.bass   * 2   * intensity()
+                + motionState.energy * 3,                // energy → coarser grain (distortion)
+      () => 0.2 + audioState.mid    * 0.3                // mid    → noise speed (always animates)
     )
       .rotate(
         2,
-        () => 0.5 + audioState.treble * 1.5 * intensity() // treble → spin speed
+        () => 0.5 + audioState.treble * 1.5 * intensity()
+                  + motionState.tilt  * 2               // tilt   → faster spin (destabilise)
       )
       .layer(
-        src(o0).scrollX(() => 0.2 + audioState.mid * 0.3 * intensity()) // mid → horizontal pull
+        src(o0).scrollX(
+          () => 0.2 + audioState.mid    * 0.3 * intensity()
+                    + motionState.energy * 0.4           // energy → horizontal displacement
+        )
       )
       .out(o1);
 
@@ -151,7 +163,8 @@ export class HydraSetup {
           .hue(     () => 0.3 + audioState.treble * 0.4 * intensity()) // treble → o1 hue offset
           .posterize(-1)
           .contrast(0.7),
-        () => 2 + audioState.bass * 3 * intensity()                    // bass   → modulation depth
+        () => 2 + audioState.bass    * 3   * intensity()
+                + motionState.energy * 4                               // energy → modulation depth
       )
       .layer(
         src(o1)

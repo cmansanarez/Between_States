@@ -27,6 +27,7 @@ import { HydraSetup }    from './visuals/hydraSetup.js';
 import { App }           from './app/app.js';
 import { StateStore }    from './state/stateStore.js';
 import { StateMachine }  from './state/stateMachine.js';
+import { MotionSensor }  from './motion/motionSensor.js';
 
 try {
   // ── 1. Initialize Hydra ────────────────────────────────────────────────────
@@ -48,8 +49,13 @@ try {
     (audioState) => stateMachine.update(audioState)
   );
 
-  // ── 5. Wire up the app (overlay tap → mic → reactive patch) ───────────────
-  const app = new App(audioAnalyzer, hydraSetup, stateStore);
+  // ── 5. Motion sensor ──────────────────────────────────────────────────────
+  // Created here but not started yet — init() requires a user gesture (iOS).
+  // app.js calls motionSensor.init() inside the same tap handler as the mic.
+  const motionSensor = new MotionSensor();
+
+  // ── 6. Wire up the app (overlay tap → mic + motion → reactive patch) ──────
+  const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor);
   app.init();
 
 } catch (err) {

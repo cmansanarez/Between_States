@@ -1,0 +1,129 @@
+/**
+ * motionSensor.js
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Captures device motion and orientation and exposes normalized 0–1 values
+ * that the Hydra patch reads on every render tick.
+ *
+ * TWO INPUT EVENTS
+ * ────────────────
+ * DeviceMotionEvent — fires ~60 fps with acceleration data (m/s²).
+ *   We use e.acceleration (gravity-subtracted) when available, falling back
+ *   to e.accelerationIncludingGravity on devices that don't separate them.
+ *   Magnitude of the acceleration vector → motionState.energy.
+ *
+ * DeviceOrientationEvent — fires ~60 fps with tilt angles (degrees).
+ *   gamma: left–right tilt  (−90 to 90°, 0 = flat)
+ *   beta:  front–back tilt  (−180 to 180°, 0 = flat)
+ *   Combined tilt angle magnitude → motionState.tilt.
+ *
+ * SMOOTHING
+ * ─────────
+ * Raw accelerometer data is noisy. An exponential moving average (EMA) with
+ * α = 0.15 smooths the signal while still responding quickly to real movement.
+ * Tilt is less noisy and uses a lighter smoothing (α = 0.25).
+ *
+ * iOS PERMISSION
+ * ──────────────
+ * iOS 13+ gates DeviceMotionEvent behind a user-gesture permission dialog.
+ * init() calls DeviceMotionEvent.requestPermission() when the API exists.
+ * This MUST be called from inside a user gesture (tap) — same requirement
+ * as the Web Audio API. app.js calls both in the same _start() handler.
+ *
+ * EXPOSED STATE
+ * ─────────────
+ *   motionState.energy  0–1  overall shake / acceleration intensity
+ *   motionState.tilt    0–1  how far the device is tilted from flat
+ */
+
+export class MotionSensor {
+  constructor() {
+    /**
+     * state — the shared live motion data object.
+     * Passed by reference to HydraSetup so arrow functions always
+     * read the current frame's values without any polling.
+     */
+    this.state = {
+      energy: 0,   // smoothed acceleration magnitude, normalized 0–1
+      tilt:   0,   // smoothed tilt angle magnitude, normalized 0–1
+    };
+
+    this._smoothedEnergy = 0;
+    this._smoothedTilt   = 0;
+  }
+
+  /**
+   * init()
+   * ──────
+   * Requests motion permission (iOS) and attaches event listeners.
+   * Must be called from inside a user-gesture handler.
+   * Returns a Promise that resolves once listeners are attached.
+   */
+  async init() {
+    // iOS 13+ requires explicit permission for motion events.
+    // On Android and desktop the API doesn't exist — skip the request.
+    if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+      const permission = await DeviceMotionEvent.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error('motion permission denied');
+      }
+    }
+
+    window.addEventListener('devicemotion',      (e) => this._onMotion(e));
+    window.addEventListener('deviceorientation', (e) => this._onOrientation(e));
+  }
+
+  /**
+   * _onMotion(e)
+   * ────────────
+   * Computes acceleration magnitude and applies EMA smoothing.
+   *
+   * Normalization:
+   *   e.acceleration values are in m/s². At rest: ~0. Active shake: 5–20.
+   *   We divide by 15 and clamp to 0–1, so a vigorous shake saturates the signal.
+   *   Falls back to accelerationIncludingGravity (gravity ≈ 9.8 on the z-axis
+   *   when flat) — in that case we subtract 9.8 as a rough gravity estimate.
+   */
+  _onMotion(e) {
+    let x, y, z;
+
+    if (e.acceleration?.x != null) {
+      // Gravity-subtracted — most accurate
+      ({ x, y, z } = e.acceleration);
+    } else if (e.accelerationIncludingGravity?.x != null) {
+      // Gravity included — subtract rough estimate
+      x = e.accelerationIncludingGravity.x;
+      y = e.accelerationIncludingGravity.y;
+      z = e.accelerationIncludingGravity.z - 9.8;
+    } else {
+      return;
+    }
+
+    const magnitude  = Math.sqrt(x * x + y * y + z * z);
+    const normalized = Math.min(magnitude / 15, 1);
+
+    // EMA: α = 0.15 — smooths noise while preserving real movement
+    this._smoothedEnergy = this._smoothedEnergy * 0.85 + normalized * 0.15;
+    this.state.energy    = this._smoothedEnergy;
+  }
+
+  /**
+   * _onOrientation(e)
+   * ──────────────────
+   * Computes tilt magnitude from gamma (left–right) and beta (front–back).
+   *
+   * Normalization:
+   *   Combined tilt of 60° or more = 1.0 (fully tilted).
+   *   Holding the phone upright in portrait = ~0.4 beta, ~0 gamma — so this
+   *   reads the deviation from flat, not from portrait hold.
+   */
+  _onOrientation(e) {
+    const gamma = e.gamma ?? 0;
+    const beta  = e.beta  ?? 0;
+
+    const magnitude  = Math.min(Math.sqrt(gamma * gamma + beta * beta) / 60, 1);
+
+    // EMA: α = 0.25 — tilt signal is smoother, can respond faster
+    this._smoothedTilt = this._smoothedTilt * 0.75 + magnitude * 0.25;
+    this.state.tilt    = this._smoothedTilt;
+  }
+}
