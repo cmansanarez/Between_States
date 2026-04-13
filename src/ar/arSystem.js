@@ -80,11 +80,6 @@ export class ARSystem {
    * Stops face detection and shuts down the camera stream.
    */
   async stop() {
-    if (this._debugInterval) {
-      clearInterval(this._debugInterval);
-      this._debugInterval = null;
-    }
-
     if (this._bridgeRaf) {
       cancelAnimationFrame(this._bridgeRaf);
       this._bridgeRaf = null;
@@ -155,51 +150,28 @@ export class ARSystem {
       throw new Error('ml5 not loaded — check CDN script tag in index.html');
     }
 
-    console.log('[AR] ml5 version:', ml5.version);
-    console.log('[AR] video readyState:', this._video.readyState,
-      'size:', this._video.videoWidth, '×', this._video.videoHeight);
-
-    // Ensure video is actually playing before handing it to ml5.
-    // readyState 4 = HAVE_ENOUGH_DATA — frames are available.
+    // Ensure video is playing before handing it to ml5.
     if (this._video.readyState < 2) {
-      console.log('[AR] Waiting for video to be ready...');
       await new Promise(resolve =>
         this._video.addEventListener('canplay', resolve, { once: true })
       );
-      console.log('[AR] Video ready — readyState:', this._video.readyState);
     }
-
     await this._video.play().catch(e =>
       console.warn('[AR] video.play() failed:', e.message)
     );
 
-    // ml5 v1.x returns a Promise directly — use await rather than callback wrapping.
-    console.log('[AR] Initialising ml5.faceMesh (await pattern)...');
     this._faceMesh = await ml5.faceMesh({ maxFaces: 1, flipHorizontal: true });
-    console.log('[AR] ml5.faceMesh model ready:', this._faceMesh);
-
-    // ── Pixel check ──────────────────────────────────────────────────────────
-    // Draw one frame to a small canvas and sample a pixel.
-    // If all pixels are 0 (black), the GPU can't read video frames directly —
-    // we need to route through a canvas for ml5 to see anything.
-    const probe    = document.createElement('canvas');
-    probe.width    = 64; probe.height = 64;
-    const probeCtx = probe.getContext('2d');
-    probeCtx.drawImage(this._video, 0, 0, 64, 64);
-    const pixel    = probeCtx.getImageData(0, 0, 1, 1).data;
-    const isBlack  = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0;
-    console.log(`[AR] Pixel probe — r:${pixel[0]} g:${pixel[1]} b:${pixel[2]} — ${isBlack ? 'BLACK (video unreadable, using canvas bridge)' : 'has data'}`);
 
     // ── Canvas bridge ─────────────────────────────────────────────────────────
-    // Create an offscreen canvas that mirrors the video each frame.
-    // ml5 reads from this canvas instead of the video element directly,
-    // bypassing GPU video texture access restrictions on iOS/Safari.
+    // iOS/Safari cannot expose getUserMedia video frames as GPU textures to
+    // WebGL-based models — ml5 sees black frames from the <video> element.
+    // Solution: draw each video frame to a 2D canvas; ml5 reads from that
+    // canvas instead, where pixel data is always CPU-accessible.
     this._bridgeCanvas        = document.createElement('canvas');
     this._bridgeCanvas.width  = this._video.videoWidth;
     this._bridgeCanvas.height = this._video.videoHeight;
     this._bridgeCtx           = this._bridgeCanvas.getContext('2d');
 
-    // Draw video → canvas every frame before ml5 samples it.
     const drawBridge = () => {
       if (!this._bridgeCtx) return;
       this._bridgeCtx.drawImage(this._video, 0, 0);
@@ -207,32 +179,11 @@ export class ARSystem {
     };
     this._bridgeRaf = requestAnimationFrame(drawBridge);
 
-    // Wait two frames so bridge canvas has real pixel data before detect runs.
+    // Wait two frames so the bridge has real pixel data before detection starts.
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-    // One-shot test on the canvas bridge.
-    console.log('[AR] Running one-shot detect on canvas bridge...');
-    try {
-      const testFaces = await this._faceMesh.detect(this._bridgeCanvas);
-      console.log('[AR] One-shot detect result — faces:', testFaces.length);
-      if (testFaces.length > 0) {
-        console.log('[AR] First face box:', JSON.stringify(testFaces[0].box));
-      }
-    } catch (e) {
-      console.warn('[AR] One-shot detect failed:', e.message);
-    }
-
-    // Log face count every 3 seconds.
-    this._debugInterval = setInterval(() => {
-      console.log('[AR] face count this tick:', this._lastFaceCount ?? 'no callback yet');
-    }, 3000);
-
-    console.log('[AR] Calling detectStart on canvas bridge...');
-    this._faceMesh.detectStart(this._bridgeCanvas, (faces) => {
-      this._lastFaceCount = faces.length;
-      this._onFaces(faces);
-    });
-    console.log('[AR] ml5 FaceMesh detectStart called');
+    this._faceMesh.detectStart(this._bridgeCanvas, (faces) => this._onFaces(faces));
+    console.log('[AR] ml5 FaceMesh started');
   }
 
   /**

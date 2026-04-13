@@ -187,9 +187,10 @@ export class HydraSetup {
         () => Math.max(1, Math.round(400 / flashState.pixelate)),
         () => Math.max(1, Math.round(400 / flashState.pixelate))
       )
-
+      .modulate(src(s0).rotate(Math.PI/2), [0, 1].smooth(1))
+      
       .out(o1);
-
+      s0.initVideo("https://files.catbox.moe/gkbvpx.mp4");
     // ── Buffer o0: feedback loop ─────────────────────────────────────────────
     // o0 feeds into itself — each frame is a transformation of the last.
     // The slow scale (.999) and slight brightness (1.01) cause the image to
