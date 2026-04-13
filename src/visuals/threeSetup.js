@@ -168,8 +168,23 @@ export class ThreeSetup {
   /**
    * _update()
    * ──────────
-   * Runs every frame. Maps arState face values to the 3D object's
+   * Runs every frame. Maps arState face keypoint values to the 3D object's
    * position, scale, and rotation in orthographic world space.
+   *
+   * ANCHOR POINT
+   * ────────────
+   * faceAnchorX/Y is the midpoint between the two eye corners — a stable
+   * point that tracks the face without drifting with hair or chin movement.
+   * The eye line sits at roughly the upper-third of the face, so we shift
+   * the object down by one eye-distance to land it at the face centre.
+   * Adjust EYE_OFFSET_Y to move the object up (smaller) or down (larger).
+   *
+   * SCALE
+   * ─────
+   * eyeDistance is the eye-corner span normalised by video width (0–1).
+   * At a typical selfie distance this is ~0.13–0.18. Multiplying by
+   * SCALE_FACTOR maps that to an object size in ortho world units.
+   * Adjust SCALE_FACTOR to make the object fill more or less of the face.
    */
   _update() {
     if (!this._object || !this._arState) return;
@@ -180,18 +195,31 @@ export class ThreeSetup {
     if (ar.faceDetected) {
       this._object.visible = true;
 
-      // Map normalised face centre to orthographic world coords.
-      // faceX 0→1 : left edge (−aspect) to right edge (+aspect)
-      // faceY 0→1 : top (+1) to bottom (−1) — Three.js y-up, CSS y-down
-      this._object.position.x = (ar.faceX * 2 - 1) * aspect;
-      this._object.position.y = -(ar.faceY * 2 - 1);
+      // ── Tuning constants ──────────────────────────────────────────────────
+      // EYE_OFFSET_Y: downward shift from eye midpoint toward face centre.
+      //   +0.5 = shift down by half an eye-distance, negative shifts up.
+      const EYE_OFFSET_Y = 0.5;
+      // SCALE_FACTOR: multiplier on eyeDistance → object size in world units.
+      //   Increase to make the object larger, decrease to shrink it.
+      const SCALE_FACTOR = 3.0;
+
+      // ── Position ──────────────────────────────────────────────────────────
+      // Map eye-midpoint from normalised video coords to ortho world coords:
+      //   normX 0→1 : left (−aspect) to right (+aspect)
+      //   normY 0→1 : top (+1) to bottom (−1)  [Three.js y-up, CSS y-down]
+      //
+      // The Y offset shifts the anchor down from the eye line into the face
+      // centre. eyeDistance is normalised by vw; divide by aspect to convert
+      // to the same scale as the ortho camera's vertical (±1) range.
+      this._object.position.x = (ar.faceAnchorX * 2 - 1) * aspect;
+      this._object.position.y = -(ar.faceAnchorY * 2 - 1)
+                                 - (ar.eyeDistance / aspect) * EYE_OFFSET_Y;
       this._object.position.z = 0;
 
-      // Scale: faceSize is face-width / video-width (0–1).
-      // Tune this multiplier to fit the object to the face oval.
-      this._object.scale.setScalar(ar.faceSize * 0.8);
+      // ── Scale ─────────────────────────────────────────────────────────────
+      this._object.scale.setScalar(ar.eyeDistance * SCALE_FACTOR);
 
-      // Head tilt → Z rotation so the object leans with the head.
+      // ── Head tilt → Z rotation ────────────────────────────────────────────
       // headTilt −1…1 maps to roughly ±23° (0.4 rad).
       this._object.rotation.z = -ar.headTilt * 0.4;
 

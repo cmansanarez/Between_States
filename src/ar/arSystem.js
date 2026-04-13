@@ -36,9 +36,12 @@ export class ARSystem {
   constructor() {
     this.arState = {
       faceDetected: false,
-      faceX:        0.5,   // normalised 0–1, face centre horizontal
-      faceY:        0.5,   // normalised 0–1, face centre vertical
-      faceSize:     0,     // normalised 0–1, face width / video width
+      faceX:        0.5,   // normalised 0–1, face centre horizontal (bounding box)
+      faceY:        0.5,   // normalised 0–1, face centre vertical (bounding box)
+      faceSize:     0,     // normalised 0–1, face width / video width (bounding box)
+      faceAnchorX:  0.5,   // normalised 0–1, midpoint between eye corners horizontal
+      faceAnchorY:  0.5,   // normalised 0–1, midpoint between eye corners vertical
+      eyeDistance:  0,     // normalised 0–1, eye-corner to eye-corner / video width
       mouthOpen:    0,     // normalised 0–1, lip separation / face height
       headTilt:     0,     // −1 to 1, eye-corner angle (neg=left, pos=right)
       facingMode:   'user',
@@ -228,21 +231,32 @@ export class ARSystem {
         this.arState.mouthOpen = Math.min(lipGap / (box.height * 0.15), 1);
       }
 
-      // ── Head tilt ────────────────────────────────────────────────────────
+      // ── Eye corners → anchor, eye distance, head tilt ───────────────────
       // Keypoint 33 = right eye outer corner, 263 = left eye outer corner.
-      // dy / dx gives the slope of the eye line — normalised to −1 … 1.
-      // 0 = level, positive = tilted right, negative = tilted left.
+      //
+      // faceAnchorX/Y: midpoint between the two eye corners — a stable face
+      //   centre that excludes hair and chin unlike the bounding box.
+      //
+      // eyeDistance: Euclidean distance between eye corners normalised by
+      //   video width — proportional to face size without bbox noise.
+      //   Used by ThreeSetup as the scale reference for the 3D object.
+      //
+      // headTilt: slope of the eye line normalised to −1 … 1.
       if (kp[33] && kp[263]) {
-        const dx    = kp[263].x - kp[33].x || 1;
-        const dy    = kp[263].y - kp[33].y;
-        const slope = dy / Math.abs(dx);
-        this.arState.headTilt = Math.max(-1, Math.min(slope * 4, 1));
+        const dx = kp[263].x - kp[33].x;
+        const dy = kp[263].y - kp[33].y;
+
+        this.arState.faceAnchorX = Math.min((kp[33].x + kp[263].x) * 0.5 / vw, 1);
+        this.arState.faceAnchorY = Math.min((kp[33].y + kp[263].y) * 0.5 / vh, 1);
+        this.arState.eyeDistance = Math.min(Math.sqrt(dx * dx + dy * dy) / vw, 1);
+        this.arState.headTilt    = Math.max(-1, Math.min((dy / (Math.abs(dx) || 1)) * 4, 1));
       }
 
     } else {
-      this.arState.faceSize  = 0;
-      this.arState.mouthOpen = 0;
-      this.arState.headTilt  = 0;
+      this.arState.faceSize     = 0;
+      this.arState.eyeDistance  = 0;
+      this.arState.mouthOpen    = 0;
+      this.arState.headTilt     = 0;
     }
   }
 }
