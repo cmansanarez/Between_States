@@ -17,13 +17,16 @@ export class App {
    * @param {HydraSetup}    hydraSetup     — Hydra canvas + patch module
    * @param {StateStore}    stateStore     — live system state container
    * @param {MotionSensor}  motionSensor   — device motion + orientation module
+   * @param {ARSystem}      arSystem       — camera feed + face tracking module
+   * @param {ThreeSetup}    threeSetup     — Three.js 3D object layer
    */
-  constructor(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem) {
+  constructor(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem, threeSetup) {
     this._audioAnalyzer = audioAnalyzer;
     this._hydraSetup    = hydraSetup;
     this._stateStore    = stateStore;
     this._motionSensor  = motionSensor;
     this._arSystem      = arSystem;
+    this._threeSetup    = threeSetup;
 
     this._overlay     = document.getElementById('overlay');
     this._errorMsg    = document.getElementById('error-msg');
@@ -98,6 +101,10 @@ export class App {
       } catch (arErr) {
         console.warn('[Between States] AR unavailable:', arErr.message ?? arErr);
       }
+
+      // Begin the Three.js render loop with a live reference to arState.
+      // The 3D object will show/hide itself based on arState.faceDetected.
+      this._threeSetup.start(this._arSystem.arState);
 
       // flashState is read by the Hydra patch every tick via arrow functions.
       // pixelate: 1 = no visible effect (1px blocks = passthrough).

@@ -24,6 +24,7 @@
 
 import { AudioAnalyzer } from './audio/audioAnalyzer.js';
 import { HydraSetup }    from './visuals/hydraSetup.js';
+import { ThreeSetup }    from './visuals/threeSetup.js';
 import { App }           from './app/app.js';
 import { StateStore }    from './state/stateStore.js';
 import { StateMachine }  from './state/stateMachine.js';
@@ -60,8 +61,16 @@ try {
   // gesture. app.js calls arSystem.init() inside the same tap handler.
   const arSystem = new ARSystem();
 
-  // ── 7. Wire up the app ────────────────────────────────────────────────────
-  const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem);
+  // ── 7. Three.js 3D object layer ───────────────────────────────────────────
+  // Sits on #three-canvas at z-index 1 (above camera, below Hydra).
+  // loadModel() fetches the GLB immediately; the object stays hidden until
+  // a face is detected. start() is called in app.js after AR init.
+  const threeSetup = new ThreeSetup('three-canvas');
+  threeSetup.init();
+  threeSetup.loadModel('/model.glb');
+
+  // ── 8. Wire up the app ────────────────────────────────────────────────────
+  const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem, threeSetup);
   app.init();
 
 } catch (err) {

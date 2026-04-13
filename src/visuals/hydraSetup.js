@@ -113,11 +113,6 @@ export class HydraSetup {
    * @param {object}     arState      — live reference from ARSystem.arState
    */
   setReactivePatch(audioState, stateStore, motionState, flashState, arState) {
-    // Initialize video source before any patch chain references s0.
-    // Hydra handles frame availability gracefully -- shows black until
-    // first frames decode, then switches to live video.
-    s0.initVideo("https://files.catbox.moe/gkbvpx.mp4");
-
     const STATE_INTENSITY = {
       idle:       0.12,
       emergence:  0.40,
@@ -192,8 +187,6 @@ export class HydraSetup {
         () => Math.max(1, Math.round(400 / flashState.pixelate)),
         () => Math.max(1, Math.round(400 / flashState.pixelate))
       )
-      .modulate(src(s0).rotate(Math.PI/2), [0, 1].smooth(1))
-      
       .out(o1);
     // ── Buffer o0: feedback loop ─────────────────────────────────────────────
     // o0 feeds into itself — each frame is a transformation of the last.

@@ -61,10 +61,11 @@
         object-fit: cover;
       }
 
-      /* ── Hydra canvas sits above the camera feed ── */
-      /* opacity is driven by audioState.level via JS after experience starts. */
-      /* z-index 1 keeps it above #ar-container (0) and below overlay (100). */
-      #hydra-canvas {
+      /* ── Three.js canvas: 3D object layer above camera, below Hydra ── */
+      /* alpha: true on the renderer keeps this fully transparent except   */
+      /* where the 3D object is drawn. pointer-events: none lets taps fall  */
+      /* through to the document tap-flash listener.                        */
+      #three-canvas {
         position: fixed;
         top: 0;
         left: 0;
@@ -72,6 +73,21 @@
         height: 100%;
         display: block;
         z-index: 1;
+        pointer-events: none;
+      }
+
+      /* ── Hydra canvas sits above Three.js and the camera feed ── */
+      /* opacity is driven by audioState.level via JS after experience starts. */
+      /* z-index 2 keeps it above #ar-container (0), #three-canvas (1),     */
+      /* and below overlay (100).                                            */
+      #hydra-canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        z-index: 2;
       }
 
       /* ── Face debug indicator — remove before final release ── */
@@ -159,7 +175,10 @@
     <!-- MindAR renders camera feed + face tracking into this container -->
     <div id="ar-container"></div>
 
-    <!-- Hydra renders into this canvas (z-index 1, opacity driven by audio) -->
+    <!-- Three.js renders the 3D object here (z-index 1, transparent bg) -->
+    <canvas id="three-canvas"></canvas>
+
+    <!-- Hydra renders into this canvas (z-index 2, opacity driven by audio) -->
     <canvas id="hydra-canvas"></canvas>
 
     <!-- Camera flip button — shown after experience starts -->
