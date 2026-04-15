@@ -12,4 +12,9 @@ export default {
   // to be included in Vite's dep-optimization step.
   // No npm deps to optimize — heavy libs (hydra-synth, p5) load via CDN.
   optimizeDeps: {},
+
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+  },
 };

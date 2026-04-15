@@ -90,18 +90,48 @@
         z-index: 2;
       }
 
-      /* ── Face debug indicator — remove before final release ── */
-      #face-debug {
+      /* ── State HUD ── */
+      #state-hud {
         position: fixed;
         bottom: 1.2rem;
         left: 1.2rem;
         z-index: 200;
-        color: rgba(255, 255, 255, 0.8);
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.65rem;
-        letter-spacing: 0.08em;
-        pointer-events: none;
         display: none;
+        flex-direction: column;
+        gap: 0.4rem;
+        pointer-events: none;
+      }
+
+      #state-hud .hud-state {
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(68, 255, 209, 0.9);
+        transition: color 0.4s;
+      }
+
+      #state-hud .hud-face {
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.55rem;
+        letter-spacing: 0.12em;
+        color: rgba(255, 255, 255, 0.35);
+      }
+
+      #state-hud .hud-bar-track {
+        width: 80px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 1px;
+        overflow: hidden;
+      }
+
+      #state-hud .hud-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: rgba(68, 255, 209, 0.7);
+        border-radius: 1px;
+        transition: width 0.08s linear, background 0.4s;
       }
 
       /* ── Camera flip button ── */
@@ -184,8 +214,12 @@
     <!-- Camera flip button — shown after experience starts -->
     <button id="camera-flip" aria-label="flip camera">flip cam</button>
 
-    <!-- Face debug indicator — shown after experience starts, remove before final release -->
-    <div id="face-debug"></div>
+    <!-- State HUD — shown after experience starts -->
+    <div id="state-hud">
+      <div class="hud-state">—</div>
+      <div class="hud-face">no face</div>
+      <div class="hud-bar-track"><div class="hud-bar-fill"></div></div>
+    </div>
 
     <!-- Full-screen overlay — removed once the user grants mic access -->
     <div id="overlay">

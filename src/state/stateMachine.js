@@ -36,20 +36,25 @@ import { STATES } from './stateStore.js';
 // Keyed by the state being entered or maintained.
 // audioState.level is 0–1 (RMS amplitude from p5.AudioIn).
 
+// Tuned for demo/classroom environments (quieter than live festival).
+// EMERGENCE threshold raised from 0.06→0.10 to prevent false triggers from
+// ambient hum while still catching voice and clapping easily.
+// DISTORTION/COLLAPSE unchanged — still require intentional loud input.
+// HOLD_UP reduced 20→15 for snappier demo escalation (~0.25 s at 60 fps).
 const THRESHOLD_UP = {
-  [STATES.EMERGENCE]:  0.06,
+  [STATES.EMERGENCE]:  0.10,  // was 0.06 — raised for quieter demo rooms
   [STATES.DISTORTION]: 0.25,
   [STATES.COLLAPSE]:   0.65,
 };
 
 const THRESHOLD_DOWN = {
-  [STATES.EMERGENCE]:  0.04,
+  [STATES.EMERGENCE]:  0.07,  // was 0.04 — paired raise for hysteresis band
   [STATES.DISTORTION]: 0.18,
   [STATES.COLLAPSE]:   0.55,
 };
 
 // ── Hold-frame counts ────────────────────────────────────────────────────────
-const HOLD_UP   = 20;   // ~0.33 s to escalate
+const HOLD_UP   = 15;   // ~0.25 s to escalate (was 20 — snappier for demo)
 const HOLD_DOWN = 90;   // ~1.5 s to de-escalate
 
 const STATE_ORDER = [STATES.IDLE, STATES.EMERGENCE, STATES.DISTORTION, STATES.COLLAPSE];

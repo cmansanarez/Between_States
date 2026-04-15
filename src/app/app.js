@@ -102,9 +102,9 @@ export class App {
         console.warn('[Between States] AR unavailable:', arErr.message ?? arErr);
       }
 
-      // Begin the Three.js render loop with a live reference to arState.
-      // The 3D object will show/hide itself based on arState.faceDetected.
-      this._threeSetup.start(this._arSystem.arState);
+      // Begin the Three.js render loop with live references to arState and
+      // audioState. Opacity is driven by audio level each frame.
+      this._threeSetup.start(this._arSystem.arState, this._audioAnalyzer.state, this._stateStore);
 
       // flashState is read by the Hydra patch every tick via arrow functions.
       // pixelate: 1 = no visible effect (1px blocks = passthrough).
@@ -205,8 +205,21 @@ export class App {
    */
   _startBlendLoop() {
     const arState  = this._arSystem.arState;
-    const debugEl  = document.getElementById('face-debug');
-    debugEl.style.display = 'block';
+
+    // State HUD elements
+    const hud      = document.getElementById('state-hud');
+    const hudState = hud.querySelector('.hud-state');
+    const hudFace  = hud.querySelector('.hud-face');
+    const hudFill  = hud.querySelector('.hud-bar-fill');
+    hud.style.display = 'flex';
+
+    // HUD color per state — mirrors the pitch site palette
+    const STATE_COLOR = {
+      idle:       'rgba(68,255,209,0.7)',
+      emergence:  'rgba(48,79,254,0.9)',
+      distortion: 'rgba(255,29,137,0.9)',
+      collapse:   'rgba(255,236,0,0.9)',
+    };
 
     const update = () => {
       const level = this._audioAnalyzer.state.level;
@@ -234,16 +247,18 @@ export class App {
         const mask = `radial-gradient(ellipse ${radius} ${radius} at ${cx} ${cy}, white 40%, transparent 70%)`;
         this._hydraCanvas.style.webkitMaskImage = mask;
         this._hydraCanvas.style.maskImage       = mask;
-
-        debugEl.textContent =
-          `face ✓  x:${arState.faceX.toFixed(2)} y:${arState.faceY.toFixed(2)} ` +
-          `size:${arState.faceSize.toFixed(2)} mouth:${arState.mouthOpen.toFixed(2)} ` +
-          `tilt:${arState.headTilt.toFixed(2)}`;
       } else {
         this._hydraCanvas.style.webkitMaskImage = 'none';
         this._hydraCanvas.style.maskImage       = 'none';
-        debugEl.textContent = 'face ✗';
       }
+
+      // Update state HUD
+      const stateName = this._stateStore.current ?? 'idle';
+      hudState.textContent = stateName.toUpperCase();
+      hudState.style.color = STATE_COLOR[stateName] ?? STATE_COLOR.idle;
+      hudFill.style.background = STATE_COLOR[stateName] ?? STATE_COLOR.idle;
+      hudFace.textContent  = arState.faceDetected ? 'face ◈' : 'no face';
+      hudFill.style.width  = Math.round(level * 100) + '%';
 
       this._blendRaf = requestAnimationFrame(update);
     };
