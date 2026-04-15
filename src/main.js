@@ -67,7 +67,7 @@ try {
   // a face is detected. start() is called in app.js after AR init.
   const threeSetup = new ThreeSetup('three-canvas');
   threeSetup.init();
-  threeSetup.loadModel('/model.glb');
+  threeSetup.loadModel('/model.glb');  // opacity is now audio-driven, not static
 
   // ── 8. Wire up the app ────────────────────────────────────────────────────
   const app = new App(audioAnalyzer, hydraSetup, stateStore, motionSensor, arSystem, threeSetup);
